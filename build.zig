@@ -8,11 +8,8 @@ pub fn build(b: *std.Build) void {
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
     // for restricting supported target set are available.
-    const target = b.standardTargetOptions(.{ .default_target = std.Target.Query{
-        .cpu_arch = .riscv64,
-        .os_tag = .freestanding,
-        .abi = .gnu,
-    } });
+    // const target = b.standardTargetOptions(.{ .default_target = std.Target.Query{ .cpu_arch = .riscv64, .os_tag = .freestanding, .abi = .none } });
+    const target = std.Target.Query{ .cpu_arch = .riscv64, .os_tag = .freestanding };
 
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
@@ -21,7 +18,7 @@ pub fn build(b: *std.Build) void {
 
     // Create a module for the freestanding kernel
     const kernel_mod = b.createModule(.{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/kernel.zig"),
         .target = target,
 
         .optimize = optimize,
@@ -33,4 +30,6 @@ pub fn build(b: *std.Build) void {
         .root_module = kernel_mod,
     });
     kernel.setLinkerScript(b.path("kernel.ld"));
+
+    b.default_step.dependOn(&kernel.step);
 }

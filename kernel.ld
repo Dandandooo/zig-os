@@ -1,9 +1,15 @@
 OUTPUT_ARCH("riscv")
+ENTRY(_start)
 
 PHDRS {
   text PT_LOAD;
   rodata PT_LOAD;
   data PT_LOAD;
+}
+
+MEMORY {
+  mmio (rw) : ORIGIN = 0x0, LENGTH = 0x80000000
+  ram (rwx) : ORIGIN = 0x80000000, LENGTH = 128M
 }
 
 SECTIONS {
