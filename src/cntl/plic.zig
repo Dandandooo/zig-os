@@ -11,8 +11,8 @@ const PLIC_UINT_SIZE: comptime_int = @sizeOf(u32);
 
 pub const NIRQ: comptime_int = config.NIRQ;
 
-fn CTX(hart_id: comptime_int, s_mode: bool) comptime_int {
-    comptime return 2 * hart_id + s_mode;
+inline fn CTX(hart_id: u32, s_mode: bool) u32 {
+    return 2 * hart_id + @intFromBool(s_mode);
 }
 
 // Internal Type Definitions
@@ -26,21 +26,23 @@ const plic_regs: type = struct {
 };
 
 // Globals
-const PLIC: *const plic_regs = @ptrCast(config.PLIC_MMIO_BASE);
+const PLIC: *plic_regs = @ptrFromInt(config.PLIC_MMIO_BASE);
 
 // Exported Functions
 pub fn init() void {
+    @branchHint(.cold);
+
     // disable all interrupt sources
-    for (0..PLIC_SRC_CNT) |i| set_source_priority(i, 0);
+    for (0..PLIC_SRC_CNT) |i| set_source_priority(@intCast(i), 0);
 
     // Route all interrupts to S-mode
-    for (0..PLIC_CTX_CNT) |i| disable_all_sources_for_context(CTX(i, 0));
+    for (0..PLIC_CTX_CNT) |i| disable_all_sources_for_context(CTX(@intCast(i), false));
 
     // CTX(i,0) is hartid /i/ M-mode context
     // CTX(i,1) is hartid /i/ S-mode context
 
     // init hart 0 S-mode context
-    enable_all_sources_for_context(CTX(0, 1));
+    enable_all_sources_for_context(CTX(0, false));
 }
 
 pub fn enable_source(srcno: u32, prio: u32) void {
@@ -56,12 +58,12 @@ pub fn disable_source(srcno: u32) void {
 
 pub fn claim_interrupt() u32 {
     // hart 0 S-mode context
-    return claim_context_interrupt(CTX(0, 1));
+    return claim_context_interrupt(CTX(0, false));
 }
 
 pub fn finish_interrupt(srcno: u32) void {
     assert(srcno < PLIC_SRC_CNT);
-    complete_context_interrupt(1, srcno);
+    complete_context_interrupt(CTX(0, false), srcno);
 }
 
 // Internal Functions
@@ -107,10 +109,10 @@ inline fn complete_context_interrupt(ctxno: u32, srcno: u32) void {
 
 inline fn enable_all_sources_for_context(ctxno: u32) void {
     assert(ctxno <= PLIC_CTX_CNT);
-    @memset(PLIC.enable[ctxno], 0xFFFF_FFFF);
+    @memset(&PLIC.enable.data[ctxno], 0xFFFF_FFFF);
 }
 
 inline fn disable_all_sources_for_context(ctxno: u32) void {
     assert(ctxno <= PLIC_CTX_CNT);
-    @memset(PLIC.enable[ctxno], 0);
+    @memset(&PLIC.enable.data[ctxno], 0);
 }

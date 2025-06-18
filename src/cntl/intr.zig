@@ -21,11 +21,13 @@ var isrtab: [config.NIRQ]?isrtab_entry = {};
 
 // Global Interrupt
 pub fn init() void {
-    disable();
+    @branchHint(.cold);
+
+    _ = disable();
     plic.init();
 
     // Enable Timer and External interrupts
-    reg.csrw("sie", reg.SIE_STIE | reg.SIE_SEIE);
+    _ = reg.csrrw("sie", reg.SIE_STIE | reg.SIE_SEIE);
 
     initialized = true;
 }

@@ -11,7 +11,7 @@ pub inline fn csrr(comptime reg: []const u8) usize {
 }
 
 pub inline fn csrrw(comptime reg: []const u8, val: usize) usize {
-    return asm volatile (std.fmt.comptimePrint("csrw %[ret], {s}, %[new]", .{reg})
+    return asm volatile (std.fmt.comptimePrint("csrrw %[ret], {s}, %[new]", .{reg})
         : [ret] "=r" (-> usize),
         : [new] "r" (val),
     );

@@ -1,10 +1,12 @@
-/! By convention, main.zig is where your main function lives in the case that
+//! By convention, main.zig is where your main function lives in the case that
 //! you are building an executable. If you are making a library, the convention
 //! is to delete this file and start with root.zig instead.
 const std = @import("std");
-const io = @import("api/io.zig");
+const intr = @import("cntl/intr.zig");
+// const io = @import("api/io.zig");
 
 pub fn main() void {
+    intr.init();
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
     // std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
 

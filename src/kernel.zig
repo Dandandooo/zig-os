@@ -2,6 +2,7 @@
 //! you are making an executable, the convention is to delete this file and
 //! start with main.zig instead.
 const main = @import("main.zig").main;
+const builtin = @import("builtin");
 
 const ALIGN = 1 << 0;
 const MEMINFO = 1 << 1;
@@ -21,9 +22,7 @@ export var multiboot: MultibootHeader align(4) linksection(".multiboot") = .{
 };
 
 // Entry point for the freestanding kernel
-export fn _start() callconv(.Naked) noreturn {
-    // Halt the CPU in an infinite loop
-    // while (true) {}
-    @call(.compile_time, main, .{});
-    // while (true) {}
+export fn _start() callconv(.{ .riscv64_lp64 = .{} }) noreturn {
+    main();
+    @panic("Job done, kernel exited");
 }
