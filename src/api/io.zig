@@ -1,7 +1,9 @@
+
 // IO Operations
 
 // Imports
 //
+const std = @import("std");
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
@@ -25,10 +27,10 @@ pub const IOError = error{
 pub const iointf = struct {
     close: ?*const fn (self: *io) void = null,
     cntl: ?*const fn (self: *io, cmd: i32, arg: *const void) IOError!i32 = null,
-    read: ?*const fn (self: *io, buf: *void, bufsz: usize) IOError!usize = null,
-    readat: ?*const fn (self: *io, pos: u64, buf: *void, bufsz: usize) IOError!usize = null,
-    write: ?*const fn (self: *io, buf: *const void, len: usize) IOError!usize = null,
-    writeat: ?*const fn (self: *io, pos: u64, buf: *const void, len: usize) IOError!usize = null,
+    read: ?*const fn (self: *io, buf: []u8) IOError!usize = null,
+    readat: ?*const fn (self: *io, pos: u64, buf: []u8) IOError!usize = null,
+    write: ?*const fn (self: *io, buf: []const u8) IOError!usize = null,
+    writeat: ?*const fn (self: *io, pos: u64, buf: []const u8) IOError!usize = null,
 };
 
 pub const io = struct {
@@ -56,10 +58,11 @@ pub const io = struct {
         assert(self.refcnt > 0);
         self.refcnt -= 1;
         if (self.refcnt == 0)
-            self.close();
+            if (self.intf.close) self.intf.close(self)
+            else @panic("this io doesn't close");
     }
 
-    pub fn cntl(self: *const io, cmd: i32, arg: *const void) IOError!i32 {
+    pub fn cntl(self: *const io, cmd: i32, arg: *const anyopaque) IOError!i32 {
         assert(self.intf != 0);
         return if (self.intf.cntl)
             self.intf.cntl(self, cmd, arg)
@@ -68,31 +71,31 @@ pub const io = struct {
         else IOError.Unsupported;
     }
 
-    pub fn read(self: *const io, buf: *void, bufsz: usize) IOError!usize {
+    pub fn read(self: *const io, buf: []u8) IOError!usize {
         assert(self.intf != 0);
         return if (self.intf.read)
-            self.intf.read(self, buf, bufsz)
+            self.intf.read(self, buf)
         else IOError.Unsupported;
     }
 
-    pub fn readat(self: *const io, pos: u64, buf: *void, bufsz: usize) IOError!usize {
+    pub fn readat(self: *const io, pos: u64, buf: []u8) IOError!usize {
         assert(self.intf != 0);
         return if (self.intf.readat)
-            self.intf.readat(self, pos, buf, bufsz)
+            self.intf.readat(self, pos, buf)
         else IOError.Unsupported;
     }
 
-    pub fn write(self: *const io, buf: *const void, len: usize) IOError!usize {
+    pub fn write(self: *const io, buf: []u8) IOError!usize {
         assert(self.intf != 0);
         return if (self.intf.write)
-            self.intf.write(self, buf, len)
+            self.intf.write(self, buf)
         else IOError.Unsupported;
     }
 
-    pub fn writeat(self: *const io, pos: u64, buf: *const void, len: usize) IOError!usize {
+    pub fn writeat(self: *const io, pos: u64, buf: []u8) IOError!usize {
         assert(self.intf != 0);
         return if (self.intf.writeat)
-            self.intf.writeat(self, pos, buf, len)
+            self.intf.writeat(self, pos, buf)
         else IOError.Unsupported;
     }
 
@@ -100,7 +103,7 @@ pub const io = struct {
 
     // Mock Devices
 
-    pub fn new_memio(buf: *void, size: usize) *io {
+    pub fn new_memio(buf: *anyopaque, size: usize) *io {
         // FIXME: I think I need to write my own allocator
         const memio_dev: *memio_device = mem.Allocator.alloc(memio_device, 1);
         memio_dev = .{
@@ -112,16 +115,16 @@ pub const io = struct {
         return &memio_dev.memio;
     }
 
-    pub fn new_nullio(buf: *void, size: usize) *io {
+    pub fn new_nullio() *io {
         // FIXME: I think I need to write my own allocator
         const nullio: *io = mem.Allocator.alloc(io, 1);
         nullio.intf = &nullio_intf;
         return nullio;
     }
 
-    pub fn to_seekio(self: *io) *io {}
+    pub fn to_seekio(self: *io) *io {_ = self; } // TODO
 
-    pub fn create_pipe(wioptr: **io, rioptr: **io) void {}
+    pub fn create_pipe(wioptr: **io, rioptr: **io) void {_ = wioptr; _ = rioptr; } // TODO
 };
 
 // Mem IO
@@ -134,7 +137,7 @@ const memio_device = struct {
     end_pos: usize,
 };
 
-fn memio_attach() {
+fn memio_attach() void {
     // TODO
 }
 
@@ -162,15 +165,15 @@ fn memio_writeat(memio: *const io, pos: u64, buf: [*] const u8, len: usize) IOEr
 
 fn memio_close() void {}
 
-fn memio_cntl(memio: *io, cmd: i32, arg: *anyopaque) !void {
+// fn memio_cntl(memio: *io, cmd: i32, arg: *anyopaque) !void {
 
-}
+// }
 
 const memio_intf = iointf{
     .writeat = memio_writeat,
     .readat = memio_readat,
     .close = memio_close,
-    .cntl = memio_cntl
+    // .cntl = memio_cntl
 };
 
 test "memio readat" {
@@ -209,7 +212,11 @@ test "nullio read" {
 
 test "nullio write" {
     // FIXME: I think I need to write my own allocator
-    const exbuf: [100]u8 = mem.Allocator.alloc(u8, 100);
+    const exbuf: [5]u8 = [_]u8{1, 2, 3, 4, 5};
+    const nullio = io.new_nullio();
+    nullio.write(&exbuf, 5);
+
+    try std.testing.expect();
     // TODO
 }
 
@@ -222,4 +229,4 @@ const seekio_device = struct {
     end: u64,
 
     blksz: u32, // of backing device
-}
+};

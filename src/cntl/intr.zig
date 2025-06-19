@@ -13,8 +13,8 @@ pub const INTR_PRIO_MIN = plic.PLIC_PRIO_MIN;
 pub const INTR_PRIO_MAX: comptime_int = plic.PLIC_PRIO_MAX;
 
 // Globals
-const isrtab_entry: type = struct { isr: *const fn (i32, *anyopaque) void, aux: *anyopaque };
-var isrtab: [config.NIRQ]?isrtab_entry = {};
+const isrtab_entry: type = struct { isr: *const fn (u32, *anyopaque) void, aux: *anyopaque };
+var isrtab: [config.NIRQ]?isrtab_entry = [_]?isrtab_entry{null} ** config.NIRQ;
 
 // Exported functions
 //
@@ -55,18 +55,18 @@ pub inline fn disabled() bool {
 }
 
 // Handlers
-pub fn handle_smode(cause: u32) void {
+pub export fn handle_smode_interrupt(cause: u32) void {
     handle_interrupt(cause);
 }
 
-pub fn handle_umode(cause: u32) void {
+pub export fn handle_umode_interrupt(cause: u32) void {
     handle_interrupt(cause);
-    thread.yield();
+    // thread.yield(); // FIXME
 }
 
 fn handle_interrupt(cause: u32) void {
     switch (cause) {
-        reg.SCAUSE_STI => timer.handle_interrupt(),
+        // reg.SCAUSE_STI => timer.handle_interrupt(),
         reg.SCAUSE_SEI => handle_extern_interrupt(),
         else => @panic("unknown interrupt"),
     }

@@ -3,6 +3,7 @@
 //! is to delete this file and start with root.zig instead.
 const std = @import("std");
 const intr = @import("cntl/intr.zig");
+const io = @import("api/io.zig");
 // const io = @import("api/io.zig");
 
 pub fn main() void {

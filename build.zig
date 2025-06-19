@@ -51,9 +51,18 @@ pub fn build(b: *std.Build) void {
     kernel.setLinkerScript(b.path("kernel.ld"));
     kernel.root_module.addOptions("build_options", build_options);
 
+    // Assemble all ".s" files
+    const allocator = std.heap.page_allocator;
+    const src_dir = std.fs.cwd().openDir("src", .{}) catch unreachable;
+    var walker = src_dir.walk(allocator) catch unreachable;
+    while (walker.next() catch null) |entry| {
+        if (entry.kind != .file) continue;
+        const asmPath = entry.path;
+        if (!std.mem.endsWith(u8, asmPath, ".s")) continue;
 
-
-    // b.installArtifact(&kernel.step);
+        std.debug.print("{s}\n", .{asmPath});
+        kernel.addAssemblyFile(b.path(b.pathJoin(&.{"src", asmPath})));
+    }
 
     const build_kernel = b.addInstallArtifact(kernel, .{ .dest_sub_path = "kernel.elf" });
 
