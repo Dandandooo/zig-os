@@ -1,5 +1,5 @@
 # start.s - Kernel startup
-# 
+#
 # Copyright (c) 2024-2025 University of Illinois
 # SPDX-License-identifier: NCSA
 #
@@ -11,7 +11,7 @@
 
 # QEMU RISC-V virt system zero-stage bootloader jumps to 0x8000'0000 to start
 # kernel. The linker script kernel.ld arranges for start.s to be placed here.
- 
+
         .section        .text.start, "xa", @progbits
         .balign         4
 
@@ -25,13 +25,13 @@ mmode_start:
         # [0,8000'0000) - RW in all modes (MMIO)
         # [8000'0000,8800'0000) - RWX in all modes (RAM)
         #
-        
+
         li      t0, (0>>2) | ((0x100>>3)-1)
         csrw    pmpaddr0, t0
 
         li      t0, (0>>2) | ((0x80000000>>3)-1)
         csrw    pmpaddr1, t0
-        
+
         li      t0, (0x80000000>>2) | ((0x8000000>>3)-1)
         csrw    pmpaddr2, t0
 
@@ -91,11 +91,11 @@ smode_start:
         mv      fp, zero
         la      sp, _main_stack_anchor
         la      ra, halt_failure # see.s
-        j       main
+        j       _start
 
         .section        .data.stack, "wa", @progbits
         .balign		16
-        
+
         .equ		MAIN_STACK_SIZE, 4096
 
         .global		_main_stack_lowest

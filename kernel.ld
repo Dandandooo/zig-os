@@ -9,14 +9,15 @@ PHDRS {
 }
 
 PROVIDE(_ram_size = 16M);
+PROVIDE(_ram_start = 0x80000000);
 
 MEMORY {
-  mmio (w)  : ORIGIN = 0x0, LENGTH = 0x80000000
-  ram (wxa) : ORIGIN = 0x80000000, LENGTH = _ram_size
+  mmio (w)  : ORIGIN = 0x0, LENGTH = _ram_start
+  ram (wxa) : ORIGIN = _ram_start, LENGTH = _ram_size
 }
 
 SECTIONS {
-  . = 0x80000000;
+  . = _ram_start;
 
   PROVIDE(_kimg_start = .);
 
