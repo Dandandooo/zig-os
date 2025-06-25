@@ -69,13 +69,14 @@ pub fn init() vmem_error!void {
 }
 
 // Internal Functions
-/* Memory Management
- * Approach: Coalescing Free List
- * alloc_phys_page() - allocate a physical page
- * alloc_phys_pages() - allocate multiple physical pages
- * free_phys_page() - free a physical page
- * free_phys_pages() - free multiple physical pages
- */
+
+// Memory Management
+// Approach: Coalescing Free List
+// alloc_phys_page() - allocate a physical page
+// alloc_phys_pages() - allocate multiple physical pages
+// free_phys_page() - free a physical page
+// free_phys_pages() - free multiple physical pages
+
 pub fn alloc_phys_page() vmem_error!void* { return alloc_phys_pages(1); }
 
 pub fn alloc_phys_pages(cnt: usize) vmem_error!void* {
