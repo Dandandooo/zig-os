@@ -11,17 +11,19 @@ pub fn DLL(comptime T: type) type {
         // If null, everything is stack allocated / embedded
         allocator: ?*std.mem.Allocator,
 
+        const Self = @This();
+
         pub const node = struct {
             data: T,
             next: ?*node = null,
             prev: ?*node = null,
         };
 
-        fn new_node(self: DLL(T), value: anytype) *node {
+        fn new_node(self: *Self, value: anytype) *node {
             return switch (@TypeOf(value)) {
                 T => alloc: {
                     const new: *node = if (self.allocator != null)
-                        self.allocator.create(node) catch @panic("allocator failed")
+                        self.*.allocator.create(node) catch @panic("allocator failed")
                     else &value;
 
                     new.* = node{.data = value};
@@ -32,33 +34,33 @@ pub fn DLL(comptime T: type) type {
             };
         }
 
-        pub fn insert_front(self: DLL(T), data: anytype) void {
-            const new = DLL(T).new_node(data);
+        pub fn insert_front(self: *Self, data: anytype) void {
+            const new = self.new_node(data);
 
-            if (self.head == null) {
-                assert(self.tail == null);
-                self.head, self.tail = new;
+            if (self.*.head == null) {
+                assert(self.*.tail == null);
+                self.*.head = new;
+                self.*.tail = new;
             } else {
-                new.*.next = self.head;
-                self.head = new;
+                new.*.next = self.*.head;
+                self.*.head = new;
             }
         }
 
-        pub fn insert_back(self: DLL(T), data: T) void {
-            const new = DLL(T).new_node();
-            new.* = node{.data = data};
+        pub fn insert_back(self: *Self, data: T) void {
+            const new = self.new_node(data);
 
             if (self.*.tail == null) {
-                assert(self.head == null);
-                self.head = new;
-                self.tail = new;
+                assert(self.*.head == null);
+                self.*.head = new;
+                self.*.tail = new;
             } else {
-                self.tail.?.*.next = new;
-                self.tail = new;
+                self.*.tail.?.*.next = new;
+                self.*.tail = new;
             }
         }
 
-        pub fn pop(self: *DLL(T), item: *node) *node {
+        pub fn pop(self: *Self, item: *node) *node {
             assert(self.*.head != null and self.*.tail != null);
             assert(self.*.size > 0);
 
@@ -83,14 +85,14 @@ pub fn DLL(comptime T: type) type {
             return item;
         }
 
-        pub fn find(self: *DLL(T), item: T) ?*node {
+        pub fn find(self: *Self, item: T) ?*node {
             var cur: ?*node = self.*.head;
             return while (cur) |cur_node| : (cur = cur_node.*.next){
                 if (cur_node.*.data == item) break cur;
             } else null;
         }
 
-        pub fn find_field(self: *DLL(T), comptime field: []const u8, value: anytype) ?*node {
+        pub fn find_field(self: *Self, comptime field: []const u8, value: anytype) ?*node {
             comptime assert(@hasField(T, field));
             comptime assert(@FieldType(T, field) == @TypeOf(value));
             var cur: ?*node = self.*.head;
@@ -99,7 +101,7 @@ pub fn DLL(comptime T: type) type {
             } else null;
         }
 
-        pub fn displace(self: *DLL(T)) .{ ?*node, ?*node, u32 } {
+        pub fn displace(self: *Self) .{ ?*node, ?*node, u32 } {
             defer {
                 self.*.head = null;
                 self.*.tail = null;
@@ -108,7 +110,7 @@ pub fn DLL(comptime T: type) type {
             return .{ self.*.head, self.*.tail, self.*.size };
         }
 
-        pub fn destroy(self: *DLL(T)) void {
+        pub fn destroy(self: *Self) void {
             while (self.*.head) |node_ptr| {
                 const removed = self.*.pop(node_ptr);
                 if (self.*.allocator != null)
@@ -126,7 +128,7 @@ pub fn DLL(comptime T: type) type {
             }
         };
 
-        pub fn iter(self: *DLL(T)) iterator {
+        pub fn iter(self: *Self) iterator {
             return iterator{ .cur = self.*.head };
         }
     };

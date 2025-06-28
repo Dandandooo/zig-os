@@ -1,7 +1,7 @@
 const thread = @import("../conc/thread.zig");
 
 // All RISC-V General Purpose Registers
-const trap_frame = struct {
+pub const frame = struct {
     a: [8]usize,
     t: [7]usize,
     s: [12]usize,

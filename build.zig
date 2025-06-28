@@ -30,6 +30,9 @@ pub fn build(b: *std.Build) void {
         .abi = .none
     });
 
+    build_options.addOption(usize, "page_size_max", 4096);
+    build_options.addOption(usize, "page_size_min", 4096);
+
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
@@ -42,6 +45,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .code_model = .medium
     });
+    kernel_mod.addOptions("build_options", build_options);
 
     // Build the kernel with a custom linker script
     const kernel = b.addExecutable(.{
@@ -49,7 +53,6 @@ pub fn build(b: *std.Build) void {
         .name = "kernel",
     });
     kernel.setLinkerScript(b.path("kernel.ld"));
-    kernel.root_module.addOptions("build_options", build_options);
 
     // Assemble all ".s" files
     const allocator = std.heap.page_allocator;

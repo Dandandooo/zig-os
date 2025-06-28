@@ -2,6 +2,7 @@
 //! you are making an executable, the convention is to delete this file and
 //! start with main.zig instead.
 const main = @import("main.zig").main;
+const std = @import("std");
 const builtin = @import("builtin");
 
 const ALIGN = 1 << 0;
@@ -26,3 +27,9 @@ export fn _start() callconv(.{ .riscv64_lp64 = .{} }) noreturn {
     main();
     @panic("Job done, kernel exited");
 }
+
+// Kernel-wide Options
+pub const std_options = std.Options{
+    .page_size_max = 4096,
+    .page_size_min = 4096
+};

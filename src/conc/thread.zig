@@ -1,5 +1,7 @@
+const std = @import("std");
 const DLL = @import("../util/list.zig").DLL;
 const heap = @import("../mem/heap.zig");
+const page = @import("../mem/page.zig");
 const wait = @import("./wait.zig");
 const process = @import("./process.zig");
 const config = @import("../config.zig");
@@ -28,8 +30,6 @@ const idle_tid = config.NTHR-1;
 var ready_list: DLL(*thread) = .{ .allocator = heap.allocator };
 
 
-
-
 pub fn TP() *thread {
     return asm (
         "mv %[ret], tp"
@@ -39,10 +39,10 @@ pub fn TP() *thread {
 
 // Types
 
-const context = struct {
+pub const context = struct {
     s: [12]u64 = [_]u64{0} ** 12,
-    ra: *anyopaque,
-    sp: *anyopaque,
+    ra: *anyopaque = undefined,
+    sp: *anyopaque = undefined,
 
     fn new(entry_fn: *anyopaque, ra: *anyopaque, sp: *anyopaque) context {
         return context{
@@ -64,11 +64,11 @@ const status = enum {
 
 const stack_anchor = struct {
     ktp: *const thread,
-    kgp: *anyopaque
+    kgp: usize = 0
 };
 
 // Class Attributes
-ctx: context,
+ctx: context = .{},
 id: usize,
 state: status = .uninitialized,
 name: []const u8,
@@ -82,7 +82,7 @@ wait_cond: ?*wait.condition = null,
 
 proc: ?*process = null,
 
-locks: DLL(wait.lock) = .{ .allocator = heap.allocator },
+locks: DLL(*wait.lock) = .{ .allocator = heap.allocator },
 
 // Global Threads
 
@@ -124,17 +124,28 @@ fn yield() void {
 
 fn create(name: []const u8) *thread {
 
-    var tid: usize = for (1..idle_tid) |i| {
+    const tid: usize = for (1..idle_tid) |i| {
         if (thrtab[i] == null) break i;
     } else 0;
 
     if (tid == 0) @panic("out of thread spots");
 
-    var thr: *thread = heap.allocator.create(thread);
+    const thr: *thread = heap.allocator.create(thread);
+
+    const stack_page: *anyopaque = page.alloc_phys_page();
 
     thr.* = .{
-        .
+        .id = tid,
+        .name = name,
+        .parent = TP(),
+
+        .anchor = @ptrCast(stack_page + page.SIZE - 1),
+        .lowest = stack_page,
+
+        .child_exit = wait.condition.new()
     };
+
+    thr.*.anchor.* = .{ .ktp = thr };
 
     thrtab[tid] = thr;
     return thr;
