@@ -12,23 +12,22 @@ const thread = @This();
 
 
 // Externals
-extern const _idle_stack_anchor: *const stack_anchor;
-extern const _idle_stack_lowest: *const anyopaque;
+extern const _idle_stack_anchor: *stack_anchor;
+extern const _idle_stack_lowest: *anyopaque;
 
-extern const _main_stack_anchor: *const stack_anchor;
-extern const _main_stack_lowest: *const anyopaque;
+extern const _main_stack_anchor: *stack_anchor;
+extern const _main_stack_lowest: *anyopaque;
 
 extern fn _thread_startup() void;
-extern fn _thread_swtch() *thread;
+extern fn _thread_swtch(*thread) *thread;
 
 
 // Globals
-var thrtab: [config.NTHR]?*thread = [_]?thread{null} ** config.NTHR;
+var thrtab: [config.NTHR]?*thread = [_]?*thread{null} ** config.NTHR;
 const main_tid = 0;
 const idle_tid = config.NTHR-1;
 
-var ready_list: DLL(*thread) = .{ .allocator = heap.allocator };
-
+var ready_list: DLL(thread) = .{};
 
 pub fn TP() *thread {
     return asm (
@@ -73,16 +72,19 @@ id: usize,
 state: status = .uninitialized,
 name: []const u8,
 
-anchor: *stack_anchor,
-lowest: *anyopaque,
+anchor: *stack_anchor = undefined,
+lowest: *anyopaque = undefined,
 
 parent: ?*thread = null,
-child_exit: wait.condition = wait.condition.new("child exit"),
+child_exit: wait.condition = .{.name = "child exit"},
 wait_cond: ?*wait.condition = null,
+
+prev: ?*thread = null,
+next: ?*thread = null,
 
 proc: ?*process = null,
 
-locks: DLL(*wait.lock) = .{ .allocator = heap.allocator },
+locks: DLL(wait.lock) = .{},
 
 // Global Threads
 
@@ -91,11 +93,7 @@ const main_thread: thread = .{
     .id = main_tid,
     .ctx = undefined,
     .state = .running,
-    .child_exit = wait.condition.new("main child exit"),
-
-    .anchor = _main_stack_anchor,
-    .lowest = _main_stack_lowest,
-
+    .child_exit = .{.name = "main child exit"},
 };
 
 const idle_thread: thread = .{
@@ -104,21 +102,42 @@ const idle_thread: thread = .{
     .ctx = context.new(&idle_func, &_thread_startup, _idle_stack_anchor),
 
     .parent = &main_thread,
-
-    .anchor = _idle_stack_anchor,
-    .lowest = _idle_stack_lowest,
-
 };
 
 pub fn init() void {
+    main_thread.anchor = _main_stack_anchor;
     main_thread.anchor.*.ktp = &main_thread;
+    main_thread.lowest = _main_stack_lowest;
+
+    idle_thread.anchor = _idle_stack_anchor;
     idle_thread.anchor.*.ktp = &idle_thread;
+    idle_thread.lowest = _idle_stack_lowest;
 }
 
 
 
-fn yield() void {
+pub fn yield() void {
+    const self = TP();
 
+    const pie = intr.disable();
+    defer intr.restore(pie);
+    if (self.*.state == .running) {
+        self.*.state = .ready;
+        if (self != &idle_thread)
+            ready_list.insert_back(self);
+    }
+
+    const next = ready_list.pop(ready_list.head) orelse &idle_thread;
+
+    assert(next.*.state == .ready);
+    next.*.state = .running;
+
+    if (self.*.state == .exited)
+        self.reclaim();
+
+
+    // TODO: switch mspace
+    _ = _thread_swtch(next);
 }
 
 
@@ -126,9 +145,7 @@ fn create(name: []const u8) *thread {
 
     const tid: usize = for (1..idle_tid) |i| {
         if (thrtab[i] == null) break i;
-    } else 0;
-
-    if (tid == 0) @panic("out of thread spots");
+    } else @panic("out of thread spots");
 
     const thr: *thread = heap.allocator.create(thread);
 
@@ -141,8 +158,6 @@ fn create(name: []const u8) *thread {
 
         .anchor = @ptrCast(stack_page + page.SIZE - 1),
         .lowest = stack_page,
-
-        .child_exit = wait.condition.new()
     };
 
     thr.*.anchor.* = .{ .ktp = thr };
@@ -151,12 +166,29 @@ fn create(name: []const u8) *thread {
     return thr;
 }
 
+pub fn join(child: *thread) void {
+    assert(child != TP());
+    assert(child.*.parent == TP());
+
+    const pie = intr.disable();
+    defer intr.restore(pie);
+
+    while (child.*.state != .exited) child.*.child_exit.wait();
+
+    child.reclaim();
+}
+
+// Kills a thread
+pub fn exit() void {
+    if (TP() == &main_thread) {
+        @panic("Main thread exited");
+    }
+}
+
+export fn thread_exit() void { exit(); }
+
 // Frees up a dead thread
-fn reclaim(tid: usize) void {
-    assert(0 < tid and tid < config.NTHR);
-
-    const thr: *thread = thrtab[tid] orelse @panic("reclaiming nonexistent thread");
-
+fn reclaim(thr: *thread) void {
     assert(thr.*.state == .exited);
 
     for (1..idle_tid) |child| {
@@ -164,7 +196,9 @@ fn reclaim(tid: usize) void {
             thrtab[child].?.*.parent = thr.*.parent;
     }
 
-    thrtab[tid] = null;
+    thrtab[thr.*.id] = null;
+
+    // FIXME: free stack
 
     heap.allocator.destroy(thr);
 }

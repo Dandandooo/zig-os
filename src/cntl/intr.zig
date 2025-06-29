@@ -5,7 +5,6 @@ const thread = @import("../conc/thread.zig");
 const timer = @import("../conc/timer.zig");
 const reg = @import("../riscv/reg.zig");
 
-pub var initialized: bool = false;
 
 // Constants
 
@@ -20,9 +19,9 @@ var isrtab: [config.NIRQ]?isrtab_entry = [_]?isrtab_entry{null} ** config.NIRQ;
 //
 
 // Global Interrupt
+var initialized: bool = false;
 pub fn init() void {
-    @branchHint(.cold);
-
+    assert(initialized == false);
     _ = disable();
     plic.init();
 

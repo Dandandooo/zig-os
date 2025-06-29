@@ -4,6 +4,7 @@
 const main = @import("main.zig").main;
 const std = @import("std");
 const builtin = @import("builtin");
+// const console = @import("./console.zig");
 
 const ALIGN = 1 << 0;
 const MEMINFO = 1 << 1;
@@ -26,6 +27,16 @@ export var multiboot: MultibootHeader align(4) linksection(".multiboot") = .{
 export fn _start() callconv(.{ .riscv64_lp64 = .{} }) noreturn {
     main();
     @panic("Job done, kernel exited");
+}
+
+pub const panic = std.debug.FullPanic(panicFn);
+
+pub fn panicFn(message: []const u8, _: ?usize) noreturn {
+    @branchHint(.cold);
+    // console.log(.panic, message);
+    // TODO: finish UART
+    _ = message;
+    while (true) {}
 }
 
 // Kernel-wide Options

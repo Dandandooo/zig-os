@@ -5,6 +5,10 @@ const config = @import("../config.zig");
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
 
+pub const start: usize = heap.end;
+pub const end: usize = config.RAM_END_VMA;
+comptime {assert((end - start) % SIZE == 0);}
+
 pub const allocator = std.mem.Allocator{
     .ptr = undefined,
     .vtable = &.{
@@ -24,13 +28,13 @@ fn alloc(_: *anyopaque, len: usize, alignment: Alignment, _: usize) ?[*]u8 {
 fn free(_: *anyopaque, memory: []u8, alignment: Alignment, _: usize) void {
     assert(alignment.toByteUnits() <= SIZE);
     const cnt = std.mem.alignForward(usize, memory.len, SIZE) / SIZE;
-    free_phys_pages(@ptrCast(memory.ptr), cnt);
+    free_phys_pages(@alignCast(@ptrCast(memory.ptr)), cnt);
 }
 
 const DLL = @import("../util/list.zig").DLL;
 
 pub const ORDER = 12;
-pub const SIZE = 4096;
+pub const SIZE = 1 << ORDER;
 pub const MEGA_SIZE = SIZE << 9;
 pub const GIGA_SIZE = MEGA_SIZE << 9;
 
@@ -41,8 +45,18 @@ pub fn round_up(comptime n: comptime_int) comptime_int
 { comptime return round_down(n + SIZE - 1); }
 
 // Embedded DLL Storing
-var free_chunk_list = DLL(usize){ .allocator = null };
-const chunk: type = @TypeOf(free_chunk_list).node;
+var free_chunk_list = DLL(chunk){};
+const chunk align(SIZE) = struct {
+    cnt: usize,
+    next: ?*chunk = null,
+    prev: ?*chunk = null,
+};
+
+pub fn init() void {
+    const begin: *chunk = @ptrFromInt(start);
+    begin.* = chunk{ .cnt = (end - start) >> ORDER};
+    free_chunk_list.insert_back(begin);
+}
 
 // Coalescing Page Allocator
 pub fn alloc_phys_page() *align(SIZE) [SIZE]u8 { return alloc_phys_pages(1); }
@@ -52,7 +66,7 @@ pub fn alloc_phys_pages(cnt: usize) [*]align(SIZE) [SIZE]u8 {
 
     var shortest: ?*chunk = null;
 
-    const free_iter = free_chunk_list.iter();
+    var free_iter = free_chunk_list.iter();
     while (free_iter.next()) |node| {
         const free_node = node.*.data;
 
@@ -69,8 +83,8 @@ pub fn alloc_phys_pages(cnt: usize) [*]align(SIZE) [SIZE]u8 {
     assert(cnt <= shorty.data);
 
     if (shortest_size == cnt) {
-        defer free_chunk_list.pop(shorty);
-        return @ptrCast(shorty);
+        defer _ = free_chunk_list.pop(shorty);
+        return @alignCast(@ptrCast(shorty));
     }
     const new_shorty: *chunk = shorty + (shorty.data - cnt) * SIZE;
     defer @memset(new_shorty, 0);
@@ -82,7 +96,7 @@ pub fn free_phys_pages(pages: [*]align(SIZE) [SIZE]u8, cnt: usize) void {
     const pma: usize = @intFromPtr(pages);
     assert(pma % SIZE == 0);
 
-    const free_iter = free_chunk_list.iter();
+    var free_iter = free_chunk_list.iter();
     const next_node: ?*chunk = while (free_iter.next()) |node| {
         if (@intFromPtr(node) > pma) break node;
     } else null;
@@ -94,7 +108,7 @@ pub fn free_phys_pages(pages: [*]align(SIZE) [SIZE]u8, cnt: usize) void {
             prev.*.data += cnt; // merge new free block with previous
             new_node = prev;
         } else {
-            new_node = @ptrCast(pages);
+            new_node = @alignCast(@ptrCast(pages));
             pages.* = chunk{ .data = cnt, .prev = prev, .next = next_node };
             prev.*.next = new_node;
         }
@@ -112,18 +126,18 @@ pub fn free_phys_pages(pages: [*]align(SIZE) [SIZE]u8, cnt: usize) void {
 }
 
 pub fn free_page_cnt() usize {
-    var sum = 0;
-    const free_iter = free_chunk_list.iter();
-    while (free_iter.next()) |node| {
-        sum += node.*.data;
+    var sum: usize = 0;
+    var cur = free_chunk_list.head;
+    while (cur) |node| : (cur = node.*.next) {
+        sum += node.*.cnt;
     }
     return sum;
 }
 
 pub fn free_chunk_cnt() usize {
     var cnt = 0;
-    const free_iter = free_chunk_list.iter();
-    while (free_iter.next()) |_| {
+    var cur = free_chunk_list.head;
+    while (cur) |node| : (cur = node.*.next) {
         cnt += 1;
     }
     return cnt;

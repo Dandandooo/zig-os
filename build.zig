@@ -4,7 +4,7 @@ const std = @import("std");
 // declaratively construct a build graph that will be executed by an external
 // runner.
 pub fn build(b: *std.Build) void {
-    const ram_size = b.option([]const u8, "ram", "Kernel Ram Size (e.g. 8M)") orelse "8M";
+    const ram_size = b.option([] const u8, "ram", "Kernel Ram Size (e.g. 8M)") orelse "8M";
 
 
     const build_options = b.addOptions();
@@ -63,7 +63,7 @@ pub fn build(b: *std.Build) void {
         const asmPath = entry.path;
         if (!std.mem.endsWith(u8, asmPath, ".s")) continue;
 
-        std.debug.print("{s}\n", .{asmPath});
+        std.debug.print("including: {s}\n", .{asmPath});
         kernel.addAssemblyFile(b.path(b.pathJoin(&.{"src", asmPath})));
     }
 

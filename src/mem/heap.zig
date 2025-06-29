@@ -10,12 +10,13 @@ pub const start = _kimg_end;
 pub const end = page.round_up(start + init_min);
 pub const buffer: []u8 = @as([*]u8, @ptrFromInt(start))[0..(end-start)];
 
-var gpa = std.heap.GeneralPurposeAllocator(.{
-    .enable_memory_limit = true,
-    .page_size = page.SIZE,
-    .backing_allocator_zeroes = true,
-}){
-    .backing_allocator = page.allocator,
-};
+// var gpa = std.heap.GeneralPurposeAllocator(.{
+//     .enable_memory_limit = true,
+//     .page_size = page.SIZE,
+//     .backing_allocator_zeroes = true,
+// }){
+//     .backing_allocator = page.allocator,
+// };
 
-pub const allocator = gpa.allocator();
+// pub const allocator = gpa.allocator();
+pub const allocator = page.allocator;

@@ -1,68 +1,50 @@
 const assert = @import("std").debug.assert;
 const std = @import("std");
 
-// Generic Doubly-Linked-List
-pub fn DLL(comptime T: type) type {
+// Generic Doubly-Linked-List, node type T
+pub fn DLL(comptime Node: type) type {
+    comptime {
+        assert(@hasField(Node, "next"));
+        assert(@hasField(Node, "prev"));
+        assert(@FieldType(Node, "next") == ?*Node);
+        assert(@FieldType(Node, "prev") == ?*Node);
+    }
     return struct {
-        head: ?*node = null,
-        tail: ?*node = null,
+        head: ?*Node = null,
+        tail: ?*Node = null,
         size: u32 = 0,
-
-        // If null, everything is stack allocated / embedded
-        allocator: ?*std.mem.Allocator,
 
         const Self = @This();
 
-        pub const node = struct {
-            data: T,
-            next: ?*node = null,
-            prev: ?*node = null,
-        };
-
-        fn new_node(self: *Self, value: anytype) *node {
-            return switch (@TypeOf(value)) {
-                T => alloc: {
-                    const new: *node = if (self.allocator != null)
-                        self.*.allocator.create(node) catch @panic("allocator failed")
-                    else &value;
-
-                    new.* = node{.data = value};
-                    break :alloc new;
-                },
-                *node => value,
-                else => @panic("list got wrong datatype")
-            };
-        }
-
-        pub fn insert_front(self: *Self, data: anytype) void {
-            const new = self.new_node(data);
-
+        pub fn insert_front(self: *Self, node: *Node) void {
+            assert(node.*.next == null and node.*.prev == null);
             if (self.*.head == null) {
                 assert(self.*.tail == null);
-                self.*.head = new;
-                self.*.tail = new;
+                self.*.tail = node;
             } else {
-                new.*.next = self.*.head;
-                self.*.head = new;
+                node.*.next = self.*.head;
             }
+            self.*.head = node;
+            self.*.size += 1;
         }
 
-        pub fn insert_back(self: *Self, data: T) void {
-            const new = self.new_node(data);
-
+        pub fn insert_back(self: *Self, node: *Node) void {
+            assert(node.*.next == null and node.*.prev == null);
             if (self.*.tail == null) {
                 assert(self.*.head == null);
-                self.*.head = new;
-                self.*.tail = new;
+                self.*.head = node;
             } else {
-                self.*.tail.?.*.next = new;
-                self.*.tail = new;
+                self.*.tail.?.*.next = node;
             }
+            self.*.tail = node;
+            self.*.size += 1;
         }
 
-        pub fn pop(self: *Self, item: *node) *node {
+        pub fn pop(self: *Self, node: ?*Node) ?*Node {
             assert(self.*.head != null and self.*.tail != null);
             assert(self.*.size > 0);
+
+            const item = node orelse return null;
 
             if (item.*.prev == null and item.*.next == null and item != self.*.head.?)
                 return item; // item not in list
@@ -85,23 +67,39 @@ pub fn DLL(comptime T: type) type {
             return item;
         }
 
-        pub fn find(self: *Self, item: T) ?*node {
-            var cur: ?*node = self.*.head;
+        pub fn find(self: *Self, item: *Node) ?*Node {
+            var cur: ?*Node = self.*.head;
             return while (cur) |cur_node| : (cur = cur_node.*.next){
                 if (cur_node.*.data == item) break cur;
             } else null;
         }
 
-        pub fn find_field(self: *Self, comptime field: []const u8, value: anytype) ?*node {
-            comptime assert(@hasField(T, field));
-            comptime assert(@FieldType(T, field) == @TypeOf(value));
-            var cur: ?*node = self.*.head;
+        pub fn find_field(self: *Self, comptime field: []const u8, value: anytype) ?*Node {
+            comptime assert(@hasField(Node, field));
+            comptime assert(@FieldType(Node, field) == @TypeOf(value));
+            var cur: ?*Node = self.*.head;
             return while (cur) |cur_node| : (cur = cur_node.*.next) {
                 if (@field(cur_node.*.data, field) == value) break cur_node;
             } else null;
         }
 
-        pub fn displace(self: *Self) .{ ?*node, ?*node, u32 } {
+        pub fn concat(self: *Self, other: *Self) void {
+            const ohead, const otail, const osize = other.displace();
+            if (self.*.tail) |tail| {
+                tail.*.next = ohead;
+                if (ohead) |head| {
+                    head.*.prev = self.*.tail;
+                    self.*.tail = otail;
+                }
+            } else {
+                self.*.head = ohead;
+                self.*.tail = otail;
+            }
+
+            self.*.size += osize;
+        }
+
+        pub fn displace(self: *Self) .{ ?*Node, ?*Node, u32 } {
             defer {
                 self.*.head = null;
                 self.*.tail = null;
@@ -116,20 +114,6 @@ pub fn DLL(comptime T: type) type {
                 if (self.*.allocator != null)
                     self.*.allocator.?.destroy(removed);
             }
-        }
-
-        // Custom Iteration
-        const iterator = struct {
-            cur: ?*node,
-
-            pub fn next(self: *iterator) ?*node {
-                defer {if (self.*.cur) |cur| self.*.cur = cur.*.next;}
-                return self.*.cur;
-            }
-        };
-
-        pub fn iter(self: *Self) iterator {
-            return iterator{ .cur = self.*.head };
         }
     };
 }

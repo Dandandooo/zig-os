@@ -1,4 +1,11 @@
 const thread = @import("../conc/thread.zig");
+const intr = @import("./intr.zig");
+const excp = @import("./excp.zig");
+
+pub fn init() void {
+    intr.init();
+    excp.init();
+}
 
 // All RISC-V General Purpose Registers
 pub const frame = struct {
