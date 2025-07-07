@@ -24,7 +24,7 @@ const cache_elem = struct {
 // Functions
 pub fn get(self: cache, pos: u8) [BLKSZ]u8 {
     if (self.data.find_field("pos", pos)) |node| {
-        node.*.data.lock.acquire();
+        node.data.lock.acquire();
     } else {
 
     }

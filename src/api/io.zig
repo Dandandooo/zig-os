@@ -18,163 +18,155 @@ pub const IOCTL_SETPOS: usize = 5;
 
 // Internal Type Definitions
 //
-pub const IOError = error{
+pub const Error = error{
     Unsupported,
     BadFormat,
     Invalid,
 };
 
+pub fn Intf(comptime T: type) type {
+    return struct {
+        close: ?*const fn (self: *T) void = null,
+        cntl: ?*const fn (self: *T, cmd: i32, arg: *const anyopaque) Error!i32 = null,
+        read: ?*const fn (self: *T, buf: []u8) Error!usize = null,
+        readat: ?*const fn (self: *T, pos: u64, buf: []u8) Error!usize = null,
+        write: ?*const fn (self: *T, buf: []const u8) Error!usize = null,
+        writeat: ?*const fn (self: *T, pos: u64, buf: []const u8) Error!usize = null,
+    };
+}
+
 pub const iointf = struct {
-    close: ?*const fn (self: *io) void = null,
-    cntl: ?*const fn (self: *io, cmd: i32, arg: *const void) IOError!i32 = null,
-    read: ?*const fn (self: *io, buf: []u8) IOError!usize = null,
-    readat: ?*const fn (self: *io, pos: u64, buf: []u8) IOError!usize = null,
-    write: ?*const fn (self: *io, buf: []const u8) IOError!usize = null,
-    writeat: ?*const fn (self: *io, pos: u64, buf: []const u8) IOError!usize = null,
+    close: ?*const fn (ioptr: *IO) void = null,
+    cntl: ?*const fn (ioptr: *IO, cmd: i32, arg: *const anyopaque) Error!i32 = null,
+    read: ?*const fn (ioptr: *IO, buf: []u8) Error!usize = null,
+    readat: ?*const fn (ioptr: *IO, pos: u64, buf: []u8) Error!usize = null,
+    write: ?*const fn (ioptr: *IO, buf: []const u8) Error!usize = null,
+    writeat: ?*const fn (ioptr: *IO, pos: u64, buf: []const u8) Error!usize = null,
 };
 
-pub const io = struct {
-    intf: *const iointf,
-    refcnt: usize = 0,
+const IO = @This();
 
-    // IO Object Creation
+intf: iointf,
+refcnt: usize = 0,
 
-    pub fn new0(intf: *const iointf) io {
-        return .{ .intf = intf };
-    }
+// IO Object Creation
 
-    pub fn new1(intf: *const iointf) io {
-        return .{ .intf = intf, .refcnt = 1 };
-    }
+pub fn new0(intf: iointf) IO { return .{ .intf = intf}; }
 
-    pub fn addref(ioptr: *io) *io {
-        ioptr.refcnt += 1;
-        return ioptr;
-    }
+pub fn from(comptime T: type) IO {
+    return .new0(.{
+        .cntl = if (@hasDecl(T, "cntl")) T.cntl else null,
+        .read = if (@hasDecl(T, "read")) T.read else null,
+        .readat = if (@hasDecl(T, "readat")) T.readat else null,
+        .write = if (@hasDecl(T, "write")) T.write else null,
+        .writeat = if (@hasDecl(T, "writeat")) T.writeat else null,
+        .close = if (@hasDecl(T, "close")) T.close else null,
+    });
+}
 
-    // IO Interface
+// pub fn new1(comptime T: type, intf: iointf) io { return .{ .intf = intf, .refcnt = 1 }; }
 
-    pub fn close(self: *const io) void {
-        assert(self.refcnt > 0);
-        self.refcnt -= 1;
-        if (self.refcnt == 0)
-            if (self.intf.close) self.intf.close(self)
-            else @panic("this io doesn't close");
-    }
+pub fn addref(ioptr: *IO) *IO {
+    ioptr.refcnt += 1;
+    return ioptr;
+}
 
-    pub fn cntl(self: *const io, cmd: i32, arg: *const anyopaque) IOError!i32 {
-        assert(self.intf != 0);
-        return if (self.intf.cntl)
-            self.intf.cntl(self, cmd, arg)
-        else if (cmd == IOCTL_GETBLKSZ)
-            1 // defalt value
-        else IOError.Unsupported;
-    }
+// IO Interface
 
-    pub fn read(self: *const io, buf: []u8) IOError!usize {
-        assert(self.intf != 0);
-        return if (self.intf.read)
-            self.intf.read(self, buf)
-        else IOError.Unsupported;
-    }
+pub fn close(self: *IO) void {
+    assert(self.refcnt > 0);
+    self.refcnt -= 1;
+    if (self.refcnt == 0)
+        if (self.intf.close) |close_fn| close_fn(self)
+        else @panic("this io doesn't close");
+}
 
-    pub fn readat(self: *const io, pos: u64, buf: []u8) IOError!usize {
-        assert(self.intf != 0);
-        return if (self.intf.readat)
-            self.intf.readat(self, pos, buf)
-        else IOError.Unsupported;
-    }
+pub fn cntl(self: *IO, cmd: i32, arg: *const anyopaque) Error!i32 {
+    return if (self.intf.cntl) |cntl_fn| cntl_fn(self, cmd, arg)
+    else if (cmd == IOCTL_GETBLKSZ) 1 // defalt value
+    else Error.Unsupported;
+}
 
-    pub fn write(self: *const io, buf: []u8) IOError!usize {
-        assert(self.intf != 0);
-        return if (self.intf.write)
-            self.intf.write(self, buf)
-        else IOError.Unsupported;
-    }
+pub fn read(self: *IO, buf: []u8) Error!usize {
+    return if (self.intf.read) |read_fn| read_fn(self, buf)
+    else Error.Unsupported;
+}
 
-    pub fn writeat(self: *const io, pos: u64, buf: []u8) IOError!usize {
-        assert(self.intf != 0);
-        return if (self.intf.writeat)
-            self.intf.writeat(self, pos, buf)
-        else IOError.Unsupported;
-    }
+pub fn readat(self: *IO, pos: u64, buf: []u8) Error!usize {
+    return if (self.intf.readat) |readat_fn| readat_fn(self, pos, buf)
+    else Error.Unsupported;
+}
 
-    // TODO: support polling
+pub fn write(self: *IO, buf: []const u8) Error!usize {
+    return if (self.intf.write) |write_fn| write_fn(self, buf)
+    else Error.Unsupported;
+}
 
-    // Mock Devices
+pub fn writeat(self: *IO, pos: u64, buf: []const u8) Error!usize {
+    return if (self.intf.writeat) |writeat_fn| writeat_fn(self, pos, buf)
+    else Error.Unsupported;
+}
 
-    pub fn new_memio(buf: *anyopaque, size: usize) *io {
-        // FIXME: I think I need to write my own allocator
-        const memio_dev: *memio_device = mem.Allocator.alloc(memio_device, 1);
-        memio_dev = .{
-            .memio = io.new1(&memio_intf),
-            .buf = buf,
-            .size = size
-        };
+// TODO: support polling
 
-        return &memio_dev.memio;
-    }
+// Mock Devices
 
-    pub fn new_nullio() *io {
-        // FIXME: I think I need to write my own allocator
-        const nullio: *io = mem.Allocator.alloc(io, 1);
-        nullio.intf = &nullio_intf;
-        return nullio;
-    }
+pub fn to_seekio(self: *IO) *IO {_ = self; } // TODO
 
-    pub fn to_seekio(self: *io) *io {_ = self; } // TODO
-
-    pub fn create_pipe(wioptr: **io, rioptr: **io) void {_ = wioptr; _ = rioptr; } // TODO
-};
+pub fn create_pipe(wioptr: **IO, rioptr: **IO) void {_ = wioptr; _ = rioptr; } // TODO
 
 // Mem IO
-const memio_device = struct {
-    memio: io,
+//
+const MemIO = struct {
+    io: IO = new0(&.{
+        .readat = MemIO.readat,
+        .writeat = MemIO.writeat,
+        .cntl = MemIO.cntl,
 
-    buf: [*] u8,
+    }),
+
+    buf: [] u8,
 
     size: usize,
     end_pos: usize,
+
+    fn attach() void {
+        // TODO
+    }
+
+    fn readat(ioptr: *IO, pos: u64, buf: [*] u8, bufsz: usize) Error!usize {
+        const self: *MemIO = @fieldParentPtr("io", ioptr);
+        if (pos + bufsz > self.*.size)
+            return Error.Invalid;
+
+        @memcpy(buf, self.*.buf[pos..pos+bufsz]);
+
+        return bufsz;
+    }
+
+    fn writeat(ioptr: *IO, pos: u64, buf: [*] const u8, len: usize) Error!usize {
+        const self: *MemIO = @fieldParentPtr("io", ioptr);
+        if (pos + len > self.*.size)
+            return Error.Invalid;
+
+        @memcpy(self.*.buf[pos..pos+len], buf);
+
+        return len;
+    }
+
+    fn close() void {}
+
+    fn cntl(ioptr: *IO, cmd: i32, arg: *anyopaque) Error!i32 {
+        const self: *MemIO = @fieldParentPtr("io", ioptr);
+        _ = arg;
+        return switch (cmd) {
+            IOCTL_GETBLKSZ => 1,
+            IOCTL_GETEND => self.*.buf.len,
+            else => Error.Unsupported
+        };
+    }
 };
 
-fn memio_attach() void {
-    // TODO
-}
-
-fn memio_readat(memio: *const io, pos: u64, buf: [*] u8, bufsz: usize) IOError!usize {
-    const memio_dev: *const memio_device = @fieldParentPtr( "memio", memio);
-
-    if (pos + bufsz > memio_dev.*.size)
-        return IOError.Invalid;
-
-    @memcpy(buf, memio_dev.*.buf[pos..pos+bufsz]);
-
-    return bufsz;
-}
-
-fn memio_writeat(memio: *const io, pos: u64, buf: [*] const u8, len: usize) IOError!usize {
-    const memio_dev: *memio_device = @fieldParentPtr("memio", memio);
-
-    if (pos + len > memio_dev.*.size)
-        return IOError.Invalid;
-
-    @memcpy(memio_device.*.buf[pos..pos+len], buf);
-
-    return len;
-}
-
-fn memio_close() void {}
-
-// fn memio_cntl(memio: *io, cmd: i32, arg: *anyopaque) !void {
-
-// }
-
-const memio_intf = iointf{
-    .writeat = memio_writeat,
-    .readat = memio_readat,
-    .close = memio_close,
-    // .cntl = memio_cntl
-};
 
 test "memio readat" {
     // TODO
@@ -185,45 +177,49 @@ test "memio writeat" {
 }
 
 // Null IO
-fn nullio_read(nullio: *io, buf: *void, bufsz: usize) !usize {
-    assert(nullio != 0);
-    const cbuf = [bufsz]u8(buf);
-    @memset(cbuf, 0);
-    return bufsz;
-}
+pub const NullIO = struct {
+    io: IO = new0(&.{
+        .read = NullIO.read,
+        .write = NullIO.write,
+        .close = NullIO.close,
+    }),
 
-fn nullio_write(nullio: *io, buf: *const void, len: usize) !usize {
-    assert(nullio != 0);
-    assert(buf != 0);
-    return len;
-}
+    fn read(_: *IO, buf: []u8) Error!usize {
+        @memset(buf, 0);
+        return buf.len;
+    }
 
-fn nullio_close() void {}
+    fn write(_: *IO, buf: []const u8) Error!usize {
+        return buf.len;
+    }
 
-const nullio_intf = iointf{
-    .read = nullio_read,
-    .write = nullio_close,
-    .close = nullio_close,
+    fn close(_: *IO) void {}
 };
 
+
 test "nullio read" {
-    // TODO
+    const buf = [_]u8{0xFF, 1, 2};
+    const self: NullIO = .{};
+    const num = self.read(buf);
+    try std.testing.expect(num);
+    try std.testing.expect(buf[0] == 0);
+    try std.testing.expect(buf[1] == 0);
+    try std.testing.expect(buf[2] == 0);
 }
 
 test "nullio write" {
     // FIXME: I think I need to write my own allocator
     const exbuf: [5]u8 = [_]u8{1, 2, 3, 4, 5};
-    const nullio = io.new_nullio();
-    nullio.write(&exbuf, 5);
+    const self: NullIO = .{};
+    self.write(&exbuf, 5);
 
-    try std.testing.expect();
-    // TODO
+    try std.testing.expect(exbuf[2] == 3);
 }
 
 // Seek IO
-const seekio_device = struct {
-    seekio: io,
-    bkgio: *io,
+const SeekIO = struct {
+    io: IO,
+    bkgio: *IO,
 
     pos: u64,
     end: u64,

@@ -29,8 +29,9 @@ const plic_regs: type = struct {
 const PLIC: *plic_regs = @ptrFromInt(config.PLIC_MMIO_BASE);
 
 // Exported Functions
+pub var initialized = false;
 pub fn init() void {
-    @branchHint(.cold);
+    assert(initialized == false);
 
     // disable all interrupt sources
     for (0..PLIC_SRC_CNT) |i| set_source_priority(@intCast(i), 0);
@@ -43,6 +44,7 @@ pub fn init() void {
 
     // init hart 0 S-mode context
     enable_all_sources_for_context(CTX(0, false));
+    initialized = true;
 }
 
 pub fn enable_source(srcno: u32, prio: u32) void {

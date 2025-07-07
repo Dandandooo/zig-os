@@ -7,15 +7,20 @@ const io = @import("api/io.zig");
 
 const intr = @import("cntl/intr.zig");
 const excp = @import("cntl/excp.zig");
+const cons = @import("console.zig");
 
 const thread = @import("conc/thread.zig");
 const process = @import("conc/process.zig");
+
+const dev = @import("dev/device.zig");
 
 // const vmem = @import("mem/vmem.zig");
 
 pub fn main() void {
     intr.init();
     excp.init();
+    dev.init();
+    cons.init();
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
     // std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
 
@@ -29,6 +34,7 @@ pub fn main() void {
     // try stdout.print("Run `zig build test` to run the tests.\n", .{});
 
     // try bw.flush(); // Don't forget to flush!
+    std.log.err("hi", .{});
 }
 
 test "fuzz example" {

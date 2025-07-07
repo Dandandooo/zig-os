@@ -4,7 +4,7 @@
 const main = @import("main.zig").main;
 const std = @import("std");
 const builtin = @import("builtin");
-// const console = @import("./console.zig");
+const console = @import("./console.zig");
 
 const ALIGN = 1 << 0;
 const MEMINFO = 1 << 1;
@@ -33,14 +33,15 @@ pub const panic = std.debug.FullPanic(panicFn);
 
 pub fn panicFn(message: []const u8, _: ?usize) noreturn {
     @branchHint(.cold);
-    // console.log(.panic, message);
-    // TODO: finish UART
-    _ = message;
+    std.log.scoped(.PANIC).err("{s}", .{message});
     while (true) {}
 }
 
 // Kernel-wide Options
 pub const std_options = std.Options{
     .page_size_max = 4096,
-    .page_size_min = 4096
+    .page_size_min = 4096,
+
+    .logFn = console.log,
+    .log_level = .debug,
 };

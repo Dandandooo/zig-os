@@ -63,7 +63,7 @@ pub fn build(b: *std.Build) void {
         const asmPath = entry.path;
         if (!std.mem.endsWith(u8, asmPath, ".s")) continue;
 
-        std.debug.print("including: {s}\n", .{asmPath});
+        // std.debug.print("including: {s}\n", .{asmPath});
         kernel.addAssemblyFile(b.path(b.pathJoin(&.{"src", asmPath})));
     }
 

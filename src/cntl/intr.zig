@@ -12,7 +12,7 @@ pub const INTR_PRIO_MIN = plic.PLIC_PRIO_MIN;
 pub const INTR_PRIO_MAX: comptime_int = plic.PLIC_PRIO_MAX;
 
 // Globals
-const isrtab_entry: type = struct { isr: *const fn (u32, *anyopaque) void, aux: *anyopaque };
+const isrtab_entry: type = struct { isr: *const fn (*anyopaque) void, aux: *anyopaque };
 var isrtab: [config.NIRQ]?isrtab_entry = [_]?isrtab_entry{null} ** config.NIRQ;
 
 // Exported functions
@@ -79,13 +79,13 @@ fn handle_extern_interrupt() void {
 
     if (isrtab[srcno] == null) @panic("can't find isr");
 
-    isrtab[srcno].?.isr(srcno, isrtab[srcno].?.aux);
+    isrtab[srcno].?.isr(@ptrCast(isrtab[srcno].?.aux));
 
     plic.finish_interrupt(srcno);
 }
 
 // Registering ISRs
-pub fn enable_source(srcno: u32, prio: u32, isr: *const fn (u32, *anyopaque) void, aux: *anyopaque) void {
+pub fn enable_source(srcno: u32, prio: u32, isr: *const fn (*anyopaque) void, aux: *anyopaque) void {
     assert(0 < srcno and srcno < config.NIRQ);
     assert(0 < prio);
     assert(isrtab[srcno] == null);
