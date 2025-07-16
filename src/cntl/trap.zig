@@ -8,14 +8,14 @@ pub fn init() void {
 }
 
 // All RISC-V General Purpose Registers
-pub const frame = struct {
-    a: [8]usize,
-    t: [7]usize,
-    s: [12]usize,
+pub const frame = extern struct {
+    a: [8]usize,  // a0-a7
+    t: [7]usize,  // t0-t6
+    s: [11]usize, // s1-s11
     ra: *anyopaque,
     sp: *anyopaque,
     gp: *anyopaque,
-    tp: *thread.context,
+    tp: *thread,
     sstatus: usize,
     instret: u64,
     fp: *anyopaque,

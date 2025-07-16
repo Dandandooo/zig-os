@@ -4,9 +4,8 @@
 // Imports
 //
 const std = @import("std");
-const assert = @import("std").debug.assert;
+const assert = @import("../util/debug.zig").assert;
 const mem = @import("std").mem;
-
 
 // Exported Constants
 //
@@ -74,7 +73,7 @@ pub fn addref(ioptr: *IO) *IO {
 // IO Interface
 
 pub fn close(self: *IO) void {
-    assert(self.refcnt > 0);
+    assert(self.refcnt > 0, "IO already closed!");
     self.refcnt -= 1;
     if (self.refcnt == 0)
         if (self.intf.close) |close_fn| close_fn(self)

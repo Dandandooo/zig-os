@@ -37,13 +37,16 @@ pub const RTC_MMIO_BASE: usize = 0x00101000;
 
 // RAM and Virtual Memory
 
+pub const PAGE_ORDER: comptime_int = 12;
+pub const PAGE_SIZE: comptime_int = 4096;
+
 pub const RAM_SIZE: usize = 16 * 1024 * 1024;
 
-pub const RAM_START_VMA: usize = 0x8000_0000;
-pub const RAM_END_VMA: usize = RAM_START_VMA + RAM_SIZE;
+pub const RAM_START_PMA: usize = 0x8000_0000;
+pub const RAM_END_PMA: usize = RAM_START_PMA + RAM_SIZE;
 
-pub const RAM_START: *anyopaque = @ptrFromInt(RAM_START_VMA);
-pub const RAM_END: *anyopaque = @ptrFromInt(RAM_END_VMA);
+pub const RAM_START: *anyopaque = @ptrFromInt(RAM_START_PMA);
+pub const RAM_END: *anyopaque = @ptrFromInt(RAM_END_PMA);
 
 pub const UMEM_START_VMA: usize = 0xC000_0000;
 pub const UMEM_END_VMA: usize = 0x1_0000_0000;

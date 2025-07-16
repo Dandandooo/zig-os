@@ -6,7 +6,7 @@ const std = @import("std");
 
 pub inline fn csrr(comptime reg: []const u8) usize {
     return asm volatile (std.fmt.comptimePrint("csrr %[ret], {s}", .{reg})
-        : [ret] "=r" (-> isize),
+        : [ret] "=r" (-> usize),
     );
 }
 
@@ -34,7 +34,7 @@ pub inline fn csrrs(comptime reg: []const u8, mask: usize) usize {
 pub inline fn csrrsi(comptime reg: []const u8, mask: comptime_int) usize {
     return asm volatile (std.fmt.comptimePrint("csrrsi %[ret], {s}, %[val]", .{reg})
         : [ret] "=r" (-> usize),
-        : [val] "I" (mask),
+        : [val] "i" (mask),
     );
 }
 
@@ -56,7 +56,7 @@ pub inline fn csrrc(comptime reg: []const u8, mask: usize) usize {
 pub inline fn csrrci(comptime reg: []const u8, mask: comptime_int) usize {
     return asm volatile (std.fmt.comptimePrint("csrrci %[ret], {s}, %[val]", .{reg})
         : [ret] "=r" (-> usize),
-        : [val] "I" (mask),
+        : [val] "i" (mask),
     );
 }
 
@@ -75,17 +75,17 @@ pub const SCAUSE_SEI: usize = 9;
 // enum may be overkill
 pub const scause = enum(usize) {
     INSTR_ADDR_MISALIGNED = 0,
-    INSTR_ACCESS_FAULT,
-    ILLEGAL_INSTR,
-    BREAKPOINT,
-    LOAD_ADDR_MISALIGNED,
-    LOAD_ACCESS_FAULT,
-    STORE_ADDR_MISALIGNED,
-    STORE_ACCESS_FAULT,
-    ECALL_FROM_UMODE,
-    ECALL_FROM_SMODE,
+    INSTR_ACCESS_FAULT = 1,
+    ILLEGAL_INSTR = 2,
+    BREAKPOINT = 3,
+    LOAD_ADDR_MISALIGNED = 4,
+    LOAD_ACCESS_FAULT = 5,
+    STORE_ADDR_MISALIGNED = 6,
+    STORE_ACCESS_FAULT = 7,
+    ECALL_FROM_UMODE = 8,
+    ECALL_FROM_SMODE = 9,
     INSTR_PAGE_FAULT = 12,
-    LOAD_PAGE_FAULT,
+    LOAD_PAGE_FAULT = 13,
     STORE_PAGE_FAULT = 15,
 };
 pub const SCAUSE_INSTR_ADDR_MISALIGNED: usize = 0;

@@ -11,6 +11,9 @@ const MEMINFO = 1 << 1;
 const MAGIC = 0x1BADB002;
 const FLAGS = ALIGN | MEMINFO;
 
+extern fn halt_success() noreturn;
+extern fn halt_failure() noreturn;
+
 const MultibootHeader = packed struct {
     magic: i32 = MAGIC,
     flags: i32,
@@ -26,14 +29,38 @@ export var multiboot: MultibootHeader align(4) linksection(".multiboot") = .{
 // Entry point for the freestanding kernel
 export fn _start() callconv(.{ .riscv64_lp64 = .{} }) noreturn {
     main();
-    @panic("Job done, kernel exited");
+    shutdown(true);
 }
 
 pub const panic = std.debug.FullPanic(panicFn);
 
-pub fn panicFn(message: []const u8, _: ?usize) noreturn {
+pub fn panicFn(message: []const u8, first_trace: ?usize) noreturn {
     @branchHint(.cold);
+
     std.log.scoped(.PANIC).err("{s}", .{message});
+    if (first_trace) |trace_addr| {
+        std.log.scoped(.CAUSE).err("Trace Address: 0x{X}", .{trace_addr});
+    } else {
+        std.log.scoped(.CAUSE).err("NO STACK TRACE", .{});
+    }
+    shutdown(false);
+}
+
+pub fn shutdown(comptime success: bool) noreturn {
+    @branchHint(.cold);
+
+    console.icon_print("💀", "KILLED", "{s}\x1b[0m", .{if (success) "\x1b[32msuccess" else "\x1b[31mfailure"});
+
+    asm volatile (
+        \\ li a7, %[halt_eid]
+        \\ li a6, %[exit_code]
+        \\ ecall
+        :
+        : [halt_eid] "i" (0x0A484c54),
+          [exit_code] "i" (@intFromBool(!success))
+        : "a6", "a7"
+    );
+
     while (true) {}
 }
 
@@ -43,5 +70,9 @@ pub const std_options = std.Options{
     .page_size_min = 4096,
 
     .logFn = console.log,
-    .log_level = .debug,
+
+    // .log_level = .err,
+    .log_scope_levels = &.{
+        // .{.scope = .PLIC, .level = .info}, // Don't need debug here anymore
+    },
 };

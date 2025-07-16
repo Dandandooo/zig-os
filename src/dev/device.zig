@@ -1,10 +1,13 @@
 const std = @import("std");
 const config = @import("../config.zig");
 const IO = @import("../api/io.zig");
+const assert = @import("../util/debug.zig").assert;
+const log = std.log.scoped(.DEVICES);
 
 const device_type = enum {
     other,
     sound,
+    console,
     network,
     graphics,
     filesystem,
@@ -25,17 +28,17 @@ const Error = error {
 
 pub var initialized = false;
 pub fn init() void {
-    std.debug.assert(initialized == false);
+    assert(initialized == false, "devmgr already initialized!");
 
+    log.info("initialized", .{});
     initialized = true;
 }
 
 pub fn register(dev: device) Error!u32 {
-    for (devtab, 0..) |cur, i| {
+    return for (devtab, 0..) |cur, i| {
         if (cur == null) {
             devtab[i] = dev;
-            return @intCast(i);
+            break @intCast(i);
         }
-    }
-    return Error.NoSpace;
+    } else Error.NoSpace;
 }

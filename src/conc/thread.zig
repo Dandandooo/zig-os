@@ -6,16 +6,18 @@ const wait = @import("./wait.zig");
 const process = @import("./process.zig");
 const config = @import("../config.zig");
 const intr = @import("../cntl/intr.zig");
-const assert = @import("std").debug.assert;
+const assert = @import("../util/debug.zig").assert;
+const kernel = @import("../kernel.zig");
 
 const thread = @This();
+const log = std.log.scoped(.THREAD);
 
 // Externals
-extern const _idle_stack_anchor: *stack_anchor;
-extern const _idle_stack_lowest: *anyopaque;
+extern const _idle_stack_anchor: stack_anchor;
+extern const _idle_stack_lowest: [page.SIZE]u8 align(page.SIZE);
 
-extern const _main_stack_anchor: *stack_anchor;
-extern const _main_stack_lowest: *anyopaque;
+extern const _main_stack_anchor: stack_anchor;
+extern const _main_stack_lowest: [page.SIZE]u8 align(page.SIZE);
 
 extern fn _thread_startup() void;
 extern fn _thread_swtch(*thread) *thread;
@@ -29,10 +31,11 @@ const idle_tid = config.NTHR-1;
 pub var ready_list: DLL(thread) = .{};
 
 pub fn TP() *thread {
-    return asm (
-        "mv %[ret], tp"
-        : [ret] "=r" (-> *thread)
-    );
+    return asm ( "mv %[ret], tp" : [ret] "=r" (-> *thread));
+}
+
+inline fn set_running(thr: *thread) void {
+    asm volatile ("mv tp, %[thr]" :: [thr] "r" (thr) : "tp");
 }
 
 // Types
@@ -62,7 +65,7 @@ const status = enum {
 
 const stack_anchor = struct {
     ktp: *thread,
-    kgp: usize = 0
+    kgp: *anyopaque = undefined
 };
 
 // Class Attributes
@@ -75,7 +78,7 @@ name: []const u8,
 
 // Stack is page-aligned
 anchor: *stack_anchor = undefined,
-lowest: *align(page.SIZE) anyopaque = undefined,
+lowest: []align(page.SIZE) u8 = undefined,
 
 parent: ?*thread = null,
 child_exit: wait.Condition = .{.name = "child exit"},
@@ -106,15 +109,29 @@ var idle_thread: thread = .{
     .parent = &main_thread,
 };
 
+pub var initialized = false;
 pub fn init() void {
-    main_thread.anchor = _main_stack_anchor;
+    assert(!initialized, "threads already initialized!");
+    log.debug("main thread: {*}", .{&main_thread});
+    log.debug("main thread anchor = {*}", .{&main_thread.anchor});
+    log.debug("main stack anchor = {*}", .{&_main_stack_anchor});
+    log.debug("main stack lowest = {*}", .{&_main_stack_lowest});
+    main_thread.anchor = @constCast(&_main_stack_anchor);
     main_thread.anchor.ktp = &main_thread;
-    main_thread.lowest = _main_stack_lowest;
+    main_thread.lowest = @constCast(&_main_stack_lowest)[0..];
 
-    idle_thread.anchor = _idle_stack_anchor;
+    log.debug("idle thread: {*}", .{&idle_thread});
+    log.debug("idle thread anchor = {*}", .{&idle_thread.anchor});
+    log.debug("idle stack anchor = {*}", .{&_idle_stack_anchor});
+    log.debug("idle stack lowest = {*}", .{&_idle_stack_lowest});
+    idle_thread.anchor = @constCast(&_idle_stack_anchor);
     idle_thread.anchor.ktp = &idle_thread;
-    idle_thread.lowest = _idle_stack_lowest;
-    idle_thread.ctx = .new(@ptrCast(&idle_func), @ptrCast(&_thread_startup), _idle_stack_anchor);
+    idle_thread.lowest = @constCast(&_idle_stack_lowest)[0..];
+    idle_thread.ctx = .new(@ptrCast(&idle_func), @ptrCast(&_thread_startup), @constCast(@ptrCast(&_idle_stack_anchor)));
+
+    log.info("entering main thread", .{});
+    set_running(&main_thread);
+    initialized = true;
 }
 
 
@@ -132,7 +149,7 @@ pub fn yield() void {
 
     const next = ready_list.pop(ready_list.head) orelse &idle_thread;
 
-    assert(next.state == .ready);
+    assert(next.state == .ready, "yielding to unready thread!");
     next.state = .running;
 
     if (self.state == .exited)
@@ -141,6 +158,7 @@ pub fn yield() void {
 
     // TODO: switch mspace
     const old = _thread_swtch(next);
+    log.debug("Switched from <{s}:{d}> to <{s}:{d}>", .{old.name, old.id, next.name, next.id});
 
     if (old.state == .exited)
         old.reclaim();
@@ -167,14 +185,14 @@ pub fn spawn(name: []const u8, entry: *anyopaque, ...) callconv(.c) *thread {
 }
 
 fn create(name: []const u8) *thread {
-
+    log.debug("Creating thread {s}", .{name});
     const tid: usize = for (1..idle_tid) |i| {
         if (thrtab[i] == null) break i;
     } else @panic("out of thread spots");
 
     const thr: *thread = heap.allocator.create(thread);
 
-    const stack_page: *align(page.SIZE) anyopaque = page.alloc_phys_page();
+    const stack_page: []align(page.SIZE) u8 = page.phys_alloc(1);
 
     thr.* = .{
         .id = tid,
@@ -192,8 +210,8 @@ fn create(name: []const u8) *thread {
 }
 
 pub fn join(child: *thread) void {
-    assert(child != TP());
-    assert(child.parent == TP());
+    assert(child != TP(), "can't join yourself!");
+    assert(child.parent == TP(), "can't join someone else's child!");
 
     const pie = intr.disable();
     defer intr.restore(pie);
@@ -202,26 +220,30 @@ pub fn join(child: *thread) void {
 }
 
 // Kills a thread
-pub fn exit() void {
+pub fn exit() noreturn {
     const self = TP();
-    if (self == &main_thread) @panic("Main thread exited");
-    assert(self.state != .exited);
+    assert(self.state == .running, "you must be running to exit");
+    if (self == &main_thread) kernel.shutdown(true);
+    // assert(self.state != .exited, "double kill!");
     self.state = .exited;
 
-    while (self.locks.head) |lock| : (_ = self.*.locks.pop(self.*.locks.head)) {
+    while (self.locks.head) |lock| : (_ = self.*.locks.pop(self.*.locks.head))
         lock.release();
-    }
 
-    if (self.parent) | parent | parent.child_exit.broadcast();
+    if (self.parent) | parent |
+        parent.child_exit.broadcast();
 
     thread.yield();
+
+    // Should never get here
+    @panic("Revived death thread!");
 }
 
-export fn thread_exit() void { exit(); }
+export fn thread_exit() noreturn { exit(); }
 
 // Frees up a dead thread
 fn reclaim(thr: *thread) void {
-    assert(thr.state == .exited);
+    assert(thr.state == .exited, "kill me first!");
 
     for (1..idle_tid) |child| {
         if (thrtab[child] != null and thrtab[child].?.parent == thr)
@@ -230,8 +252,7 @@ fn reclaim(thr: *thread) void {
 
     thrtab[thr.id] = null;
 
-    // I know what I'm doing >:(
-    page.phys_free(@alignCast(@as([*]u8, @ptrFromInt(@intFromPtr(thr.lowest)))[0..page.SIZE]));
+    page.phys_free(thr.lowest);
 
     heap.allocator.destroy(thr);
 }

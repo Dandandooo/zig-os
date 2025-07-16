@@ -2,7 +2,7 @@ const DLL = @import("../util/list.zig").DLL;
 const heap = @import("../mem/heap.zig");
 const intr = @import("../cntl/intr.zig");
 const Thread = @import("./thread.zig");
-const assert = @import("std").debug.assert;
+const assert = @import("../util/debug.zig").assert;
 
 pub const Condition = struct {
     name: []const u8,
@@ -12,8 +12,8 @@ pub const Condition = struct {
         const pie = intr.disable();
 
         const self = Thread.TP();
-        assert(self.state == .running);
-        assert(self.wait_cond == null and self.next == null);
+        assert(self.state == .running, "only running thread can wait!");
+        assert(self.wait_cond == null and self.next == null, "condition mixup!");
 
         self.state = .waiting;
 
@@ -29,7 +29,7 @@ pub const Condition = struct {
 
         var node = cond.threads.head;
         while (node) | cur | : (node = cur.next) {
-            assert(cur.state == .waiting);
+            assert(cur.state == .waiting, "already awake!");
             cur.state = .ready;
             cur.wait_cond = null;
         }
@@ -39,7 +39,7 @@ pub const Condition = struct {
 
     pub fn signal(cond: *Condition) void {
         const head = cond.threads.pop(cond.threads.head) orelse return;
-        assert(head.state == .waiting);
+        assert(head.state == .waiting, "already awake!");
         head.state = .ready;
         head.wait_cond = null;
         Thread.ready_list.append(head);
@@ -70,7 +70,7 @@ pub const Lock = struct {
     }
 
     pub fn release(self: *Lock) void {
-        assert(self.owner == Thread.TP());
+        assert(self.owner == Thread.TP(), "not yours to release!");
         self.cond.signal();
     }
 };

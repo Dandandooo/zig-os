@@ -1,5 +1,13 @@
-// Internal Constant Definitions
-//
+const std = @import("std");
+const reg = @import("../riscv/reg.zig");
+const page = @import("./page.zig");
+const heap = @import("./heap.zig");
+const config = @import("../config.zig");
+const assert = @import("../util/debug.zig").assert;
+
+const log = std.log.scoped(.VMEM);
+
+/// Internal Constant Definitions
 
 pub const PTE_V = 1 << 0;
 pub const PTE_R = 1 << 1;
@@ -11,80 +19,144 @@ pub const PTE_A = 1 << 6;
 pub const PTE_D = 1 << 7;
 
 
-const PAGE_ORDER: usize = 12;
-const PAGE_SIZE: usize = 1 << PAGE_ORDER;
-const PTE_CNT = PAGE_SIZE / @sizeOf(pte_t);
+const PTE_CNT = page.SIZE / @sizeOf(PTE);
 
-// Internal Type Definitions
-//
-const pte_t: type = packed struct(u64) {
-    flags: u8,
-    rsw: u2 = 0,
-    ppn: u44,
-    reserved: u7 = 0,
-    pbmt: u2 = 0,
-    n: u1 = 0,
+/// Internal Type Definitions
 
-    fn new_ptab(pp: *const void, g_flag: u8) pte_t {
-        return .{ .ppn = @as(usize, pp) >> PAGE_ORDER, .flags = g_flag | PTE_V };
-    }
-
-    fn new_leaf(pp: *const void, rwxug_flags: u8) pte_t {
-        return .{ .ppn = @as(usize, pp) >> PAGE_ORDER, .flags = rwxug_flags | PTE_A | PTE_D | PTE_V };
-    }
-};
-const ptab_t: type = [PTE_CNT]pte_t;
-
-const mtag_t: type = packed struct(u64) { ppn: u44, asid: u16, mode: u4 };
-
-const vmem_error: type = error{
-    InvalidVMA,
-    InvalidPMA,
-    OOM,
+pub const PTEFlags = packed struct(u8) {
+	valid: bool = false,
+	read: bool = false,
+	write: bool = false,
+	exec: bool = false,
+	user: bool = false,
+	global: bool = false,
+	accessed: bool = false,
+	dirty: bool = false
 };
 
-const page_chunk_t: type = struct {
-    next: *page_chunk_t,
-    prev: *page_chunk_t,
-    size: usize,
+const PTE: type = packed struct(u64) {
+	flags: PTEFlags = .{.valid = false},
+	rsw: u2 = 0,
+	ppn: u44 = 0,
+	reserved: u7 = 0,
+	pbmt: u2 = 0,
+	n: u1 = 0,
+
+	fn is_leaf(self: *PTE) bool {
+		return self.flags.read or self.flags.write or self.flags.exec;
+	}
+
+	fn new_ptab(pma: usize, global: bool) PTE {
+		return .{ .ppn = to_ppn(pma), .flags = .{.global = global, .valid = true} };
+	}
+
+	fn new_leaf(pma: usize, rwxug: PTEFlags) PTE {
+		return .{ .ppn = to_ppn(pma), .flags = .{
+			.read = rwxug.read, .write = rwxug.write, .exec = rwxug.exec,
+			.user = rwxug.user, .global = rwxug.global, .valid = true
+		} };
+	}
 };
 
-// Internal Macros
-//
-const ROUND_UP = @import("std").math.roundUp;
-const ROUND_DOWN = @import("std").math.roundDown;
+fn to_ppn(pma: usize) u44 {
+	return @truncate(pma >> page.ORDER);
+}
 
-// Globals
-//
+fn to_pma(ppn: u44) usize {
+	return @as(usize, @intCast(ppn)) << page.ORDER;
+}
 
-@linkSection(".bss.pagetable"), var main_pt2: *ptab_t = null;
+fn offset(pp: *align(page.SIZE) anyopaque) usize {
+	return @intFromPtr(pp) & (page.SIZE - 1);
+}
 
-var free_chunks: *page_chunk_t;
-
-// Exported Function Definitions
-pub fn init() vmem_error!void {
-    // TODO: get linker _kimg
+fn to_mtag(ppn: u44, asid: u16) MTAG {
+	return .{ .ppn = ppn, .asid = asid, .mode = .Sv39 };
+}
 
 
+const PTab: type = [PTE_CNT]PTE;
+
+const MTAG: type = reg.satp;
+
+const Error: type = error{
+	InvalidVMA,
+	InvalidPMA,
+	OOM,
+};
+
+/// Macros
+
+inline fn vpn2(vma: usize) usize { return (vpn(vma) >> (2 * 9)) & (PTE_CNT - 1); }
+inline fn vpn1(vma: usize) usize { return (vpn(vma) >> (1 * 9)) & (PTE_CNT - 1); }
+inline fn vpn0(vma: usize) usize { return (vpn(vma) >> (0 * 9)) & (PTE_CNT - 1); }
+inline fn vpn(vma: usize) usize { return vma >> page.ORDER; }
+
+/// Globals
+
+var main_mtag: MTAG = undefined;
+
+var main_pt2: PTab align(page.SIZE) linksection(".bss.pagetable") = [_]PTE{.{}} ** PTE_CNT;
+var main_pt1: PTab align(page.SIZE) linksection(".bss.pagetable") = [_]PTE{.{}} ** PTE_CNT;
+var main_pt0: PTab align(page.SIZE) linksection(".bss.pagetable") = [_]PTE{.{}} ** PTE_CNT;
+
+extern const _kimg_text_start: anyopaque;
+extern const _kimg_text_end: anyopaque;
+extern const _kimg_rodata_start: anyopaque;
+extern const _kimg_rodata_end: anyopaque;
+extern const _kimg_data_start: anyopaque;
+extern const _kimg_data_end: anyopaque;
+
+/// Exported Function Definitions
+var initialized = false;
+pub fn init() void {
+	assert(initialized == false, "vmem already initialized!");
+
+	// Everything until ram start is direct gigapage mapping (MMIO Region)
+	log.debug("MMIO: 0x{X:0>8} -> 0x{X:0>8}", .{0, config.RAM_START_PMA});
+	var pma: usize = 0;
+	while (pma < config.RAM_START_PMA) : (pma += page.GIGA_SIZE)
+		main_pt2[vpn2(pma)] = .new_leaf(pma, .{.global = true, .read = true});
+
+	// Beginning of kernel region
+	main_pt2[vpn2(config.RAM_START_PMA)] = .new_ptab(@intFromPtr(&main_pt1), true);
+	main_pt1[vpn1(config.RAM_START_PMA)] = .new_ptab(@intFromPtr(&main_pt0), true);
+
+	log.debug("text: 0x{X:0>8} -> 0x{X:0>8}", .{@intFromPtr(&_kimg_text_start), @intFromPtr(&_kimg_text_end)});
+	pma = @intFromPtr(&_kimg_text_start);
+	while (pma < @intFromPtr(&_kimg_text_end)) : (pma += page.SIZE)
+		main_pt0[vpn0(pma)] = .new_leaf(pma, .{.global = true, .read = true, .exec = true});
+
+	log.debug("rodata: 0x{X:0>8} -> 0x{X:0>8}", .{@intFromPtr(&_kimg_rodata_start), @intFromPtr(&_kimg_rodata_end)});
+	pma = @intFromPtr(&_kimg_rodata_start);
+	while (pma < @intFromPtr(&_kimg_rodata_end)) : (pma += page.SIZE)
+		main_pt0[vpn0(pma)] = .new_leaf(pma, .{.global = true, .read = true});
+
+	log.debug("data: 0x{X:0>8} -> 0x{X:0>8}", .{@intFromPtr(&_kimg_data_start), @intFromPtr(&_kimg_data_end)});
+	pma = @intFromPtr(&_kimg_data_start);
+	while (pma < @intFromPtr(&_kimg_data_end)) : (pma += page.SIZE)
+		main_pt0[vpn0(pma)] = .new_leaf(pma, .{.global = true, .read = true, .write = true});
+
+	// Directly map remaining bits as MEGA pages
+	pma = config.RAM_START_PMA + page.MEGA_SIZE;
+	while (pma < config.RAM_END_PMA) : (pma += page.MEGA_SIZE)
+		main_pt1[vpn1(pma)] = .new_leaf(pma, .{.global = true, .read = true, .write = true});
+
+	// Enable Paging
+	log.debug("Gonna enable paging 🫣 🤞", .{});
+	main_mtag = to_mtag(to_ppn(@intFromPtr(&main_mtag)), 0);
+	_ = reg.csrrw("satp", @bitCast(main_mtag));
+
+
+	// TODO: Init heap here
+
+
+	_ = reg.csrrs("sstatus", reg.SSTATUS_SUM);
+
+	log.info("initialized", .{});
+	initialized = true;
 }
 
 // Internal Functions
 
-// Memory Management
-// Approach: Coalescing Free List
-// alloc_phys_page() - allocate a physical page
-// alloc_phys_pages() - allocate multiple physical pages
-// free_phys_page() - free a physical page
-// free_phys_pages() - free multiple physical pages
-
-pub fn alloc_phys_page() vmem_error!void* { return alloc_phys_pages(1); }
-
-pub fn alloc_phys_pages(cnt: usize) vmem_error!void* {
-    // TODO
-}
-
-pub fn free_phys_page(pp: *const void) vmem_error!void { return free_phys_pages(pp, 1);}
-
-pub fn free_phys_pages(pp: *const void, cnt: usize) vmem_error!void {
-    // TODO
-}
+pub fn alloc_and_map_range() void {}

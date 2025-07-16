@@ -79,6 +79,9 @@
         "build.zig",
         "build.zig.zon",
         "src",
+        "util",
+        "flake.nix",
+        "kernel.ld"
         // For example...
         //"LICENSE",
         //"README.md",

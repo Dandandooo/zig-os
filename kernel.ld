@@ -11,6 +11,8 @@ PHDRS {
 PROVIDE(_ram_size = 16M);
 PROVIDE(_ram_start = 0x80000000);
 
+PROVIDE(_page_size = 4096);
+
 MEMORY {
   mmio (w)  : ORIGIN = 0x0, LENGTH = _ram_start
   ram (wxa) : ORIGIN = _ram_start, LENGTH = _ram_size
@@ -22,6 +24,7 @@ SECTIONS {
   PROVIDE(_kimg_start = .);
 
   .text : {
+    . = ALIGN(_page_size);
     PROVIDE(_kimg_text_start = .);
     *(.text.start) /* entry */
     *(.text .text.*)
@@ -29,9 +32,8 @@ SECTIONS {
     PROVIDE(_kimg_text_end = .);
   } >ram AT>ram :text
 
-  . = ALIGN(4096);
-
   .rodata : {
+    . = ALIGN(_page_size);
     PROVIDE(_kimg_rodata_start = .);
     PROVIDE(_kimg_blob_start = .);
     *(*.rodata.blob)
@@ -43,9 +45,8 @@ SECTIONS {
     PROVIDE(_kimg_rodata_end = .);
   } >ram AT>ram :rodata
 
-  . = ALIGN(4096);
-
   .data : {
+    . = ALIGN(_page_size);
     PROVIDE(_kimg_data_start = .);
     *(.sdata .sdata.*)
     . = ALIGN(16);

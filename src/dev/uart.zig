@@ -1,6 +1,7 @@
 const config = @import("../config.zig");
-const assert = @import("std").debug.assert;
+const assert = @import("../util/debug.zig").assert;
 const IO = @import("../api/io.zig");
+const dev = @import("../dev/device.zig");
 const wait = @import("../conc/wait.zig");
 const intr = @import("../cntl/intr.zig");
 const page = @import("../mem/page.zig");
@@ -17,21 +18,21 @@ const IER_DRIE: u8 = 1 << 0;
 const IER_THREIE: u8 = 1 << 1;
 
 
-const uart_regs = packed struct {
-    rw: packed union {
+const uart_regs = extern struct {
+    rw: extern union {
         rbr: u8, // DLAB=0 read
         thr: u8, // DLAB=0 write
         dll: u8, // DLAB=1
     },
 
     // Register 1: IER/DLM
-    intr: packed union {
+    intr: extern union {
         ier: u8, // DLAB=0
         dlm: u8, // DLAB=1
     },
 
     // Register 2: IIR/FCR
-    reg2: packed union {
+    reg2: extern union {
         iir: u8, // read
         fcr: u8, // write
     },
@@ -44,8 +45,8 @@ const uart_regs = packed struct {
 };
 
 const ringbuf = struct {
-    hpos: u16 = 0,
-    tpos: u16 = 0,
+    hpos: u32 = 0,
+    tpos: u32 = 0,
     data: [RBUF_SIZE]u8 = [_]u8{0} ** RBUF_SIZE,
 
     fn empty(self: *const ringbuf) bool { return self.tpos == self.hpos; }
@@ -87,7 +88,6 @@ pub var uart0: Uart = .{
 };
 
 pub fn uart0_init() void {
-    assert(cons.initialized == true);
     uart0.regs.intr.ier = 0x00;
 
     // Configure UART0. We set the baud rate divisor to 1, the lowest value,
@@ -107,7 +107,7 @@ pub fn uart0_init() void {
 // IO FUNCTIONS
 //
 
-pub fn attach(mmio_base: *anyopaque, irqno: u32) void {
+pub fn attach(mmio_base: *anyopaque, irqno: u32) dev.Error!void {
     const intf: IO.Intf(Uart) = .{
         .write = write,
         .close = close,
@@ -118,16 +118,28 @@ pub fn attach(mmio_base: *anyopaque, irqno: u32) void {
 
     self.* = .{
         .regs = @ptrCast(mmio_base),
-        .uartio = IO.new0(&intf),
+        .io = IO.new0(&intf),
         .irqno = irqno,
-        .instno = 0, // TODO
+        .instno = try dev.register(.{
+            .name = "uart",
+            .open_fn = open,
+            .devtype = .other,
+            .aux = @ptrCast(self),
+        }), // TODO
     };
 
 }
 
 pub fn open(aux: *anyopaque) IO.Error!*IO {
     const self: *Uart = @alignCast(@ptrCast(aux));
-    intr.enable_source(self.irqno, 1, Uart.isr, aux);
+    _ = self.regs.rw.rbr;
+
+    self.regs.lcr = 0x03;
+    self.regs.reg2.fcr = 0x07;
+    self.regs.intr.ier |= IER_DRIE | IER_THREIE;
+
+    intr.enable_source(self.irqno, config.UART_INTR_PRIO, Uart.isr, aux);
+
     return &self.io;
 }
 
@@ -140,7 +152,8 @@ fn close(ioptr: *IO) void {
 fn read(ioptr: *IO, buf: []u8) IO.Error!usize {
     const self: *Uart = @fieldParentPtr("io", ioptr);
     const pie = intr.disable();
-    while (self.rxbuf.empty()) { self.empty.wait(); }
+    while (self.rxbuf.empty())
+        self.empty.wait();
     intr.restore(pie);
 
     for (buf, 0..) |_, i|  {
@@ -157,10 +170,10 @@ fn read(ioptr: *IO, buf: []u8) IO.Error!usize {
 pub fn write(ioptr: *IO, buf: []const u8) IO.Error!usize {
     const self: *Uart = @fieldParentPtr("io", ioptr);
     for (buf) |c| {
-        // const pie = intr.disable();
-        // while (self.txbuf.full()) self.full.wait();
-        // intr.restore(pie);
-        while (self.txbuf.full()) continue; // spin until interrupt
+        const pie = intr.disable();
+        while (self.txbuf.full())
+            self.full.wait();
+        intr.restore(pie);
 
         self.txbuf.putc(c);
         self.regs.intr.ier |= IER_THREIE;
@@ -180,8 +193,13 @@ fn isr(aux: *anyopaque) void {
 
     if (self.regs.lsr & LSR_THRE > 0) {
         if (!self.txbuf.full()) {
-            self.txbuf.putc(self.regs.rw.thr);
+            self.regs.rw.thr = self.txbuf.getc();
             self.full.broadcast(); // Wake threads waiting on full rbuf
         } else { self.regs.intr.ier &= ~IER_THREIE; }
     }
+}
+
+pub fn console_putc(c: u8) void {
+    while (!(uart0.regs.lsr & LSR_THRE > 0)) continue;
+    uart0.regs.rw.thr = c;
 }

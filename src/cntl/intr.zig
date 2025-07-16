@@ -1,9 +1,12 @@
+const std = @import("std");
 const config = @import("../config.zig");
-const assert = @import("std").debug.assert;
+const assert = @import("../util/debug.zig").assert;
 const plic = @import("./plic.zig");
 const thread = @import("../conc/thread.zig");
 const timer = @import("../conc/timer.zig");
 const reg = @import("../riscv/reg.zig");
+
+const log = std.log.scoped(.INTR);
 
 
 // Constants
@@ -21,13 +24,14 @@ var isrtab: [config.NIRQ]?isrtab_entry = [_]?isrtab_entry{null} ** config.NIRQ;
 // Global Interrupt
 var initialized: bool = false;
 pub fn init() void {
-    assert(initialized == false);
+    assert(initialized == false, "interrupts already initialized!");
     _ = disable();
     plic.init();
 
     // Enable Timer and External interrupts
     _ = reg.csrrw("sie", reg.SIE_STIE | reg.SIE_SEIE);
 
+    log.info("initialized", .{});
     initialized = true;
 }
 
@@ -40,7 +44,7 @@ pub inline fn disable() usize {
 }
 
 pub inline fn restore(prev: usize) void {
-    assert((prev & ~reg.SSTATUS_SIE) == 0);
+    assert((prev & ~reg.SSTATUS_SIE) == 0, "invalid sstatus state!");
     reg.csrc("sstatus", reg.SSTATUS_SIE);
     reg.csrs("sstatus", prev);
 }
@@ -60,7 +64,7 @@ pub export fn handle_smode_interrupt(cause: u32) void {
 
 pub export fn handle_umode_interrupt(cause: u32) void {
     handle_interrupt(cause);
-    // thread.yield(); // FIXME
+    thread.yield();
 }
 
 fn handle_interrupt(cause: u32) void {
@@ -73,7 +77,7 @@ fn handle_interrupt(cause: u32) void {
 
 fn handle_extern_interrupt() void {
     const srcno: u32 = plic.claim_interrupt();
-    assert(srcno < config.NIRQ);
+    assert(srcno < config.NIRQ, "srcno larger than allowed!");
 
     if (srcno == 0) return;
 
@@ -86,17 +90,16 @@ fn handle_extern_interrupt() void {
 
 // Registering ISRs
 pub fn enable_source(srcno: u32, prio: u32, isr: *const fn (*anyopaque) void, aux: *anyopaque) void {
-    assert(0 < srcno and srcno < config.NIRQ);
-    assert(0 < prio);
-    assert(isrtab[srcno] == null);
+    assert(srcno < config.NIRQ, "srcno larger than allowed!");
+    assert(isrtab[srcno] == null, "source already enabled!");
 
     isrtab[srcno] = .{ .isr = isr, .aux = aux };
     plic.enable_source(srcno, prio);
 }
 
 pub fn disable_source(srcno: u32) void {
-    assert(0 < srcno and srcno < config.NIRQ);
-    assert(isrtab[srcno] != null);
+    assert(srcno < config.NIRQ, "srcno larger than allowed!");
+    assert(isrtab[srcno] != null, "disabling nonexistent source!");
 
     plic.disable_source(srcno);
     isrtab[srcno] = null;

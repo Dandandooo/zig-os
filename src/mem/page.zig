@@ -1,8 +1,9 @@
 const std = @import("std");
 const heap = @import("./heap.zig");
 const wait = @import("../conc/wait.zig");
-const assert = std.debug.assert;
+const assert = @import("../util/debug.zig").assert;
 const config = @import("../config.zig");
+const logger = std.log.scoped(.Page);
 
 pub const start: usize = undefined;
 pub const end: usize = undefined;
@@ -32,8 +33,8 @@ pub fn round_down(len: usize) usize { return std.mem.alignBackward(usize, len, S
 
 // Physical Page Allocation
 
-pub const ORDER = 12;
-pub const SIZE = 1 << ORDER;
+pub const ORDER = config.PAGE_ORDER;
+pub const SIZE = config.PAGE_SIZE;
 pub const MEGA_SIZE = SIZE << 9;
 pub const GIGA_SIZE = MEGA_SIZE << 9;
 
@@ -47,10 +48,10 @@ const chunk = struct {
 
 pub var initialized: bool = false;
 pub fn init() void {
-    assert(heap.initialized);
+    assert(heap.initialized, "need heap to be initialized");
     start = heap.end;
     end = config.RAM_END_VMA;
-    assert((end - start) % SIZE == 0);
+    assert((end - start) % SIZE == 0, "heap doesn't end on page boundary!");
 
     const begin: *chunk = @ptrFromInt(start);
     begin.* = chunk{ .cnt = (end - start) >> ORDER};
@@ -61,8 +62,9 @@ pub fn init() void {
 // Coalescing Page Allocator
 var allock: wait.Lock = .new("allock");
 
-pub fn alloc_phys_page() *align(SIZE) [SIZE]u8 { return phys_alloc(1); }
-pub fn phys_alloc(cnt: usize) [*]align(SIZE) [SIZE]u8 {
+pub fn phys_alloc(cnt: usize) []align(SIZE) u8 {
+    logger.debug("Allocating {d} pages", .{cnt});
+
     var shortest_size: usize = 0;
     var total_free: usize = 0;
 
@@ -85,19 +87,22 @@ pub fn phys_alloc(cnt: usize) [*]align(SIZE) [SIZE]u8 {
 
     const shorty = shortest orelse @panic("OOM");
 
-    assert(cnt <= shorty.cnt);
+    assert(cnt <= shorty.cnt, "shorty ain't packing enough!");
 
     const new_shorty: *chunk = if (shortest_size == cnt) free_chunk_list.pop(shorty).? else @ptrFromInt(@intFromPtr(shorty) + (shorty.cnt - cnt) * SIZE);
-    defer @memset(@as([*]u8, @ptrCast(new_shorty))[0..SIZE], 0);
-    return @alignCast(@ptrCast(new_shorty));
+    const new_page: []align(SIZE) u8 = @alignCast(@as([*]u8, @ptrCast(new_shorty))[0..cnt*SIZE]);
+    defer @memset(new_page, 0);
+    return new_page;
 }
 
 pub fn phys_free(pages: []align(SIZE) u8) void {
     const pma: usize = @intFromPtr(pages.ptr);
-    assert(pma % SIZE == 0);
+    assert(pma % SIZE == 0, "misaligned page free!");
 
-    assert(pages.len % SIZE == 0);
+    assert(pages.len % SIZE == 0, "mis-sized page free!");
     const cnt = pages.len / SIZE;
+
+    logger.debug("Freeing {d} pages at {*}", .{cnt, pages});
 
     allock.acquire();
     defer allock.release();
@@ -166,7 +171,7 @@ test "coalescing" {
     const pps: [num]*anyopaque = undefined;
 
     for (0..num) |i|
-        pps[i] = alloc_phys_page();
+        pps[i] = phys_alloc(1);
 
     try expect(free_page_cnt() + num == orig);
     try expect(free_chunk_cnt() == 1);

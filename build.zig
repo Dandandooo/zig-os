@@ -4,25 +4,15 @@ const std = @import("std");
 // declaratively construct a build graph that will be executed by an external
 // runner.
 pub fn build(b: *std.Build) void {
-    const ram_size = b.option([] const u8, "ram", "Kernel Ram Size (e.g. 8M)") orelse "8M";
+    const ram_size = b.option([] const u8, "ram", "Kernel Ram Size (e.g. 8M)") orelse "16M";
+
+    const chroma_scope = b.option(bool, "gay", "Chroma scope coloring") orelse false;
 
 
     const build_options = b.addOptions();
 
     build_options.addOption(usize, "RAM_SIZE", parse_ram_size(ram_size));
-
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
-    // const target = b.standardTargetOptions(.{ .default_target = std.Target.Query{ .cpu_arch = .riscv64, .os_tag = .freestanding, .abi = .none } });
-    // const target = b.standardTargetOptions(.{
-    //     .default_target = std.Target.Query{
-    //         .cpu_arch = .riscv64,
-    //         .os_tag = .freestanding,
-    //         .abi = .none,
-    //     }
-    // });
+    build_options.addOption(bool, "gay", chroma_scope);
 
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .riscv64,
@@ -36,7 +26,7 @@ pub fn build(b: *std.Build) void {
     // Standard optimization options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
-    const optimize = b.standardOptimizeOption(.{});
+    const optimize = b.standardOptimizeOption(.{.preferred_optimize_mode = .Debug});
 
     // Create a module for the freestanding kernel
     const kernel_mod = b.createModule(.{
@@ -46,6 +36,8 @@ pub fn build(b: *std.Build) void {
         .code_model = .medium
     });
     kernel_mod.addOptions("build_options", build_options);
+    kernel_mod.fuzz = false;
+    kernel_mod.error_tracing = true;
 
     // Build the kernel with a custom linker script
     const kernel = b.addExecutable(.{
@@ -54,10 +46,11 @@ pub fn build(b: *std.Build) void {
     });
     kernel.setLinkerScript(b.path("kernel.ld"));
 
+
     // Assemble all ".s" files
     const allocator = std.heap.page_allocator;
-    const src_dir = std.fs.cwd().openDir("src", .{}) catch unreachable;
-    var walker = src_dir.walk(allocator) catch unreachable;
+    const src_dir = std.fs.cwd().openDir("src", .{}) catch @panic("no src dir");
+    var walker = src_dir.walk(allocator) catch @panic("failed to walk");
     while (walker.next() catch null) |entry| {
         if (entry.kind != .file) continue;
         const asmPath = entry.path;
@@ -76,9 +69,12 @@ pub fn build(b: *std.Build) void {
         "-machine", "virt",
         "-bios", "none",
         "-kernel", "zig-out/bin/kernel.elf",
+        "-global", "virtio-mmio.force-legacy=false",
         "-m", ram_size,
         "-cpu", "rv64",
         "-nographic",
+        "-d", "guest_errors,invalid_mem",
+        "-D", "qemu.log",
 
         // Console Device
         "-serial", "mon:stdio"
@@ -89,6 +85,23 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Start the kernel in qemu.");
     run_step.dependOn(&run_qemu.step);
 
+    // Add this after your run_step declaration in build.zig
+    const addr_step = b.step("addr", "Translate address to source location");
+
+    // Get positional parameter from args
+    if (b.args) |args| {
+        // Look for address after "addr" in command line
+        for (args) |arg, | {
+            std.debug.print("{s}\n", .{arg});
+            const addr_cmd = b.addSystemCommand(&.{
+                "/opt/homebrew/opt/llvm/bin/llvm-addr2line",
+                "-e", "zig-out/bin/kernel.elf",
+                "-f", arg,
+            });
+            addr_cmd.step.dependOn(b.getInstallStep());
+            addr_step.dependOn(&addr_cmd.step);
+        }
+    }
 }
 
 fn parse_ram_size(size: []const u8) usize {

@@ -1,43 +1,62 @@
 const std = @import("std");
+const gay = @import("build_options").gay;
 const Uart = @import("./dev/uart.zig");
 const intr = @import("./cntl/intr.zig");
 const dev = @import("./dev/device.zig");
 const Io = @import("./api/io.zig");
+const assert = @import("./util/debug.zig").assert;
 
-const writer = std.io.AnyWriter{ .context = &Uart.uart0, .writeFn = writefn };
+const writer = std.io.AnyWriter{ .context = undefined, .writeFn = writefn };
 
 pub var initialized = false;
 pub fn init() void {
-    std.debug.assert(initialized == false);
+	assert(initialized == false, "console already initialized!");
 
-    Uart.uart0.instno = dev.register(.{.name = "stdout", .open_fn = Uart.open, .aux = @ptrCast(&Uart.uart0)})
-    catch unreachable;
+	Uart.uart0_init();
 
-    initialized = true;
+	initialized = true;
+	std.log.scoped(.CONSOLE).info("initialized", .{});
 }
 
-fn writefn(aux: *const anyopaque, message: []const u8) anyerror!usize {
-    const device: *Uart = @ptrCast(@constCast(@alignCast(aux)));
-    return device.io.write(message);
+fn writefn(_: *const anyopaque, message: []const u8) anyerror!usize {
+	assert(initialized == true, "where are you printing to?");
+	for (message) |c|
+		Uart.console_putc(c);
+	return message.len;
+}
+
+pub fn print(comptime format: []const u8, args:anytype) void {
+	writer.print(format, args) catch @panic("couldn't print!");
+}
+
+const chroma= [_][]const u8{"31", "38;5;216", "33", "32", "36", "34", "38;5;183", "35"};
+var chroma_idx: usize = 0;
+
+pub fn icon_print(
+	comptime icon: []const u8,
+	comptime scope: ?[]const u8,
+	comptime format: []const u8,
+	args: anytype
+) void {
+	const header, const head_args = if (scope) |name|
+		.{"{s}\x1b[90;1m:\x1b[0;{s}m {s:<9} \x1b[34m>>\x1b[0m ", .{icon, if (gay) chroma[chroma_idx] else "33", name}}
+		else .{"{s}\x1b[0;34m>>\x1b[0m ", .{icon}};
+
+	chroma_idx = (chroma_idx + 1) % chroma.len;
+
+	writer.print(header ++ format ++ "\n", head_args ++ args) catch @panic("print'nt");
 }
 
 pub fn log(
-    comptime level: std.log.Level,
-    comptime scope: @TypeOf(.EnumLiteral),
-    comptime format: []const u8,
-    args: anytype
+	comptime level: std.log.Level,
+	comptime scope: @TypeOf(.EnumLiteral),
+	comptime format: []const u8,
+	args: anytype
 ) void {
-    const status = switch (level) {
-        .debug => "🐞",
-        .info => "ℹ️",
-        .warn => "⚠️",
-        .err => "🚨",
-    };
-
-    const header, const head_args = switch (scope) {
-        .default => .{"[{s}] >> ", .{status}},
-        else => .{"[{s}] : {s} >> ", .{status, @tagName(scope)}}
-    };
-
-    writer.print(header ++ format ++ "\n", head_args ++ args) catch @panic("print'nt");
+	icon_print(switch (level) {
+		.debug => "🐞",
+		.info => "ℹ️ ",
+		.warn => "⚠️ ",
+		.err => "🚨",
+	}, if (scope == .default) null else @tagName(scope), format, args);
 }
