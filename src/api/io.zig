@@ -21,26 +21,16 @@ pub const Error = error{
     Unsupported,
     BadFormat,
     Invalid,
+    Error,
 };
 
-pub fn Intf(comptime T: type) type {
-    return struct {
-        close: ?*const fn (self: *T) void = null,
-        cntl: ?*const fn (self: *T, cmd: i32, arg: *const anyopaque) Error!i32 = null,
-        read: ?*const fn (self: *T, buf: []u8) Error!usize = null,
-        readat: ?*const fn (self: *T, pos: u64, buf: []u8) Error!usize = null,
-        write: ?*const fn (self: *T, buf: []const u8) Error!usize = null,
-        writeat: ?*const fn (self: *T, pos: u64, buf: []const u8) Error!usize = null,
-    };
-}
-
 pub const iointf = struct {
-    close: ?*const fn (ioptr: *IO) void = null,
-    cntl: ?*const fn (ioptr: *IO, cmd: i32, arg: *const anyopaque) Error!i32 = null,
-    read: ?*const fn (ioptr: *IO, buf: []u8) Error!usize = null,
-    readat: ?*const fn (ioptr: *IO, pos: u64, buf: []u8) Error!usize = null,
-    write: ?*const fn (ioptr: *IO, buf: []const u8) Error!usize = null,
-    writeat: ?*const fn (ioptr: *IO, pos: u64, buf: []const u8) Error!usize = null,
+    close: ?*const fn (io: *IO) void = null,
+    cntl: ?*const fn (io: *IO, cmd: i32, arg: ?*anyopaque) Error!isize = null,
+    read: ?*const fn (io: *IO, buf: []u8) Error!usize = null,
+    readat: ?*const fn (io: *IO, buf: []u8, pos: u64) Error!usize = null,
+    write: ?*const fn (io: *IO, buf: []const u8) Error!usize = null,
+    writeat: ?*const fn (io: *IO, buf: []const u8, pos: u64) Error!usize = null,
 };
 
 const IO = @This();
@@ -53,14 +43,16 @@ refcnt: usize = 0,
 pub fn new0(intf: iointf) IO { return .{ .intf = intf}; }
 
 pub fn from(comptime T: type) IO {
-    return .new0(.{
-        .cntl = if (@hasDecl(T, "cntl")) T.cntl else null,
-        .read = if (@hasDecl(T, "read")) T.read else null,
-        .readat = if (@hasDecl(T, "readat")) T.readat else null,
-        .write = if (@hasDecl(T, "write")) T.write else null,
-        .writeat = if (@hasDecl(T, "writeat")) T.writeat else null,
-        .close = if (@hasDecl(T, "close")) T.close else null,
-    });
+    _ = T;
+    @compileError("this only reads public");
+    // return .new0(.{
+    //     .cntl = if (@hasDecl(T, "cntl")) T.cntl else null,
+    //     .read = if (@hasDecl(T, "read")) T.read else null,
+    //     .readat = if (@hasDecl(T, "readat")) T.readat else null,
+    //     .write = if (@hasDecl(T, "write")) T.write else null,
+    //     .writeat = if (@hasDecl(T, "writeat")) T.writeat else null,
+    //     .close = if (@hasDecl(T, "close")) T.close else null,
+    // });
 }
 
 // pub fn new1(comptime T: type, intf: iointf) io { return .{ .intf = intf, .refcnt = 1 }; }
@@ -76,11 +68,11 @@ pub fn close(self: *IO) void {
     assert(self.refcnt > 0, "IO already closed!");
     self.refcnt -= 1;
     if (self.refcnt == 0)
-        if (self.intf.close) |close_fn| close_fn(self)
-        else @panic("this io doesn't close");
+        if (self.intf.close) |close_fn| close_fn(self);
+        // else @panic("this io doesn't close"); // doesn't have to be a problem
 }
 
-pub fn cntl(self: *IO, cmd: i32, arg: *const anyopaque) Error!i32 {
+pub fn cntl(self: *IO, cmd: i32, arg: ?*anyopaque) Error!isize {
     return if (self.intf.cntl) |cntl_fn| cntl_fn(self, cmd, arg)
     else if (cmd == IOCTL_GETBLKSZ) 1 // defalt value
     else Error.Unsupported;
@@ -91,8 +83,8 @@ pub fn read(self: *IO, buf: []u8) Error!usize {
     else Error.Unsupported;
 }
 
-pub fn readat(self: *IO, pos: u64, buf: []u8) Error!usize {
-    return if (self.intf.readat) |readat_fn| readat_fn(self, pos, buf)
+pub fn readat(self: *IO, buf: []u8, pos: u64) Error!usize {
+    return if (self.intf.readat) |readat_fn| readat_fn(self, buf, pos)
     else Error.Unsupported;
 }
 
@@ -101,8 +93,8 @@ pub fn write(self: *IO, buf: []const u8) Error!usize {
     else Error.Unsupported;
 }
 
-pub fn writeat(self: *IO, pos: u64, buf: []const u8) Error!usize {
-    return if (self.intf.writeat) |writeat_fn| writeat_fn(self, pos, buf)
+pub fn writeat(self: *IO, buf: []const u8, pos: u64) Error!usize {
+    return if (self.intf.writeat) |writeat_fn| writeat_fn(self, buf, pos)
     else Error.Unsupported;
 }
 
@@ -133,24 +125,24 @@ const MemIO = struct {
         // TODO
     }
 
-    fn readat(ioptr: *IO, pos: u64, buf: [*] u8, bufsz: usize) Error!usize {
+    fn readat(ioptr: *IO, buf: [] u8, pos: u64) Error!usize {
         const self: *MemIO = @fieldParentPtr("io", ioptr);
-        if (pos + bufsz > self.*.size)
+        if (pos + buf.len > self.*.size)
             return Error.Invalid;
 
-        @memcpy(buf, self.*.buf[pos..pos+bufsz]);
+        @memcpy(buf, self.*.buf[pos..pos+buf.len]);
 
-        return bufsz;
+        return buf.len;
     }
 
-    fn writeat(ioptr: *IO, pos: u64, buf: [*] const u8, len: usize) Error!usize {
+    fn writeat(ioptr: *IO, buf: []const u8, pos: u64) Error!usize {
         const self: *MemIO = @fieldParentPtr("io", ioptr);
-        if (pos + len > self.*.size)
+        if (pos + buf.len > self.*.size)
             return Error.Invalid;
 
-        @memcpy(self.*.buf[pos..pos+len], buf);
+        @memcpy(self.*.buf[pos..pos+buf.len], buf);
 
-        return len;
+        return buf.len;
     }
 
     fn close() void {}

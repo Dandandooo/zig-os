@@ -9,7 +9,7 @@ const intr = @import("../cntl/intr.zig");
 const assert = @import("../util/debug.zig").assert;
 const kernel = @import("../kernel.zig");
 
-const thread = @This();
+const Thread = @This();
 const log = std.log.scoped(.THREAD);
 
 // Externals
@@ -20,22 +20,27 @@ extern const _main_stack_anchor: stack_anchor;
 extern const _main_stack_lowest: [page.SIZE]u8 align(page.SIZE);
 
 extern fn _thread_startup() void;
-extern fn _thread_swtch(*thread) *thread;
-
+extern fn _thread_swtch(*Thread) *Thread;
 
 // Globals
-var thrtab: [config.NTHR]?*thread = [_]?*thread{null} ** config.NTHR;
+var thrtab: [config.NTHR]?*Thread = [_]?*Thread{null} ** config.NTHR;
 const main_tid = 0;
-const idle_tid = config.NTHR-1;
+const idle_tid = config.NTHR - 1;
 
-pub var ready_list: DLL(thread) = .{};
+pub var ready_list: DLL(Thread) = .{};
 
-pub fn TP() *thread {
-    return asm ( "mv %[ret], tp" : [ret] "=r" (-> *thread));
+pub fn TP() *Thread {
+    return asm ("mv %[ret], tp"
+        : [ret] "=r" (-> *Thread),
+    );
 }
 
-inline fn set_running(thr: *thread) void {
-    asm volatile ("mv tp, %[thr]" :: [thr] "r" (thr) : "tp");
+inline fn set_running(thr: *Thread) void {
+    asm volatile ("mv tp, %[thr]"
+        :
+        : [thr] "r" (thr),
+        : "tp"
+    );
 }
 
 // Types
@@ -46,26 +51,18 @@ pub const context = struct {
     sp: *anyopaque = undefined,
 
     fn new(entry_fn: *const anyopaque, ra: *const anyopaque, sp: *anyopaque) context {
-        return context{
-            .s = [_]u64{0} ** 8 ++ [_]u64{@intFromPtr(entry_fn)} ++ [_]u64{0} ** 3,
-            .ra = ra, .sp = sp
-        };
+        return context{ .s = [_]u64{0} ** 8 ++ [_]u64{@intFromPtr(entry_fn)} ++ [_]u64{0} ** 3, .ra = ra, .sp = sp };
     }
 };
 
 const ctx_entry_fn_idx = 8;
 
-const status = enum {
-    uninitialized,
-    waiting,
-    running,
-    ready,
-    exited
-};
+const status = enum { uninitialized, waiting, running, ready, exited };
 
 const stack_anchor = struct {
-    ktp: *thread,
-    kgp: *anyopaque = undefined
+    ktp: *Thread,
+    /// kgp is unused in this kernel
+    kgp: *anyopaque = undefined,
 };
 
 // Class Attributes
@@ -80,29 +77,33 @@ name: []const u8,
 anchor: *stack_anchor = undefined,
 lowest: []align(page.SIZE) u8 = undefined,
 
-parent: ?*thread = null,
-child_exit: wait.Condition = .{.name = "child exit"},
+/// No parent means main thread
+parent: ?*Thread = null,
+child_exit: wait.Condition = .{ .name = "child exit" },
 wait_cond: ?*wait.Condition = null,
 
-prev: ?*thread = null,
-next: ?*thread = null,
+/// For compatibility with util DLL spec
+prev: ?*Thread = null,
+next: ?*Thread = null,
 
+/// No process signifies kernel thread
 proc: ?*process = null,
 
 locks: DLL(wait.Lock) = .{},
+rwlocks: DLL(wait.RWLock) = .{},
 
 // Global Threads
 //
 
-var main_thread: thread = .{
+var main_thread: Thread = .{
     .name = "main",
     .id = main_tid,
     .ctx = undefined,
     .state = .running,
-    .child_exit = .{.name = "main child exit"},
+    .child_exit = .{ .name = "main child exit" },
 };
 
-var idle_thread: thread = .{
+var idle_thread: Thread = .{
     .name = "idle",
     .id = idle_tid,
 
@@ -134,8 +135,6 @@ pub fn init() void {
     initialized = true;
 }
 
-
-
 pub fn yield() void {
     const self = TP();
 
@@ -155,10 +154,9 @@ pub fn yield() void {
     if (self.state == .exited)
         self.reclaim();
 
-
     // TODO: switch mspace
     const old = _thread_swtch(next);
-    log.debug("Switched from <{s}:{d}> to <{s}:{d}>", .{old.name, old.id, next.name, next.id});
+    log.debug("Switched from <{s}:{d}> to <{s}:{d}>", .{ old.name, old.id, next.name, next.id });
 
     if (old.state == .exited)
         old.reclaim();
@@ -166,7 +164,7 @@ pub fn yield() void {
 
 // Thread Creation
 
-pub fn spawn(name: []const u8, entry: *anyopaque, ...) callconv(.c) *thread {
+pub fn spawn(name: []const u8, entry: *anyopaque, ...) callconv(.c) *Thread {
     const thr = create(name);
     thr.ctx.s[8] = @intFromPtr(entry);
 
@@ -184,13 +182,13 @@ pub fn spawn(name: []const u8, entry: *anyopaque, ...) callconv(.c) *thread {
     intr.restore(pie);
 }
 
-fn create(name: []const u8) *thread {
+fn create(name: []const u8) *Thread {
     log.debug("Creating thread {s}", .{name});
     const tid: usize = for (1..idle_tid) |i| {
         if (thrtab[i] == null) break i;
     } else @panic("out of thread spots");
 
-    const thr: *thread = heap.allocator.create(thread);
+    const thr: *Thread = heap.allocator.create(Thread);
 
     const stack_page: []align(page.SIZE) u8 = page.phys_alloc(1);
 
@@ -209,7 +207,7 @@ fn create(name: []const u8) *thread {
     return thr;
 }
 
-pub fn join(child: *thread) void {
+pub fn join(child: *Thread) void {
     assert(child != TP(), "can't join yourself!");
     assert(child.parent == TP(), "can't join someone else's child!");
 
@@ -230,19 +228,21 @@ pub fn exit() noreturn {
     while (self.locks.head) |lock| : (_ = self.*.locks.pop(self.*.locks.head))
         lock.release();
 
-    if (self.parent) | parent |
+    if (self.parent) |parent|
         parent.child_exit.broadcast();
 
-    thread.yield();
+    Thread.yield();
 
     // Should never get here
     @panic("Revived death thread!");
 }
 
-export fn thread_exit() noreturn { exit(); }
+export fn thread_exit() noreturn {
+    exit();
+}
 
 // Frees up a dead thread
-fn reclaim(thr: *thread) void {
+fn reclaim(thr: *Thread) void {
     assert(thr.state == .exited, "kill me first!");
 
     for (1..idle_tid) |child| {

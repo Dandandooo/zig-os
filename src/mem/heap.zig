@@ -1,13 +1,14 @@
 const std = @import("std");
 const page = @import("./page.zig");
+const log = std.log.scoped(.HEAP);
 
-extern const _kimg_end: usize;
+extern const _kimg_end: anyopaque;
 
 const init_min = 256 + 2 * page.SIZE;
 
-pub const start: usize = undefined;
-pub const end: usize = undefined;
-pub const buffer: []u8 = undefined;
+pub var start: usize = undefined;
+pub var end: usize = undefined;
+pub var buffer: []u8 = undefined;
 
 var initial_heap: std.heap.FixedBufferAllocator = undefined;
 pub const initial_allocator: std.mem.Allocator = undefined;
@@ -15,13 +16,17 @@ pub const initial_allocator: std.mem.Allocator = undefined;
 pub var initialized: bool = false;
 pub fn init() void {
 
-    start = _kimg_end;
+    start = @intFromPtr(&_kimg_end);
     end = std.mem.alignForward(usize, start + init_min, page.SIZE);
+    log.debug("heap end: 0x{X}", .{start});
     buffer = @as([*]u8, @ptrFromInt(start))[0..(end-start)];
 
-    initial_heap = .{.buffer = buffer};
-    initial_allocator = initial_heap.allocator();
+
     initialized = true;
+    page.init();
+
+    // initial_heap = .{.buffer = buffer};
+    // initial_allocator = initial_heap.allocator();
 }
 
 // var gpa = std.heap.GeneralPurposeAllocator(.{

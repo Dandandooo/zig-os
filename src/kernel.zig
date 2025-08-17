@@ -1,7 +1,7 @@
 //! By convention, root.zig is the root source file when making a library. If
 //! you are making an executable, the convention is to delete this file and
 //! start with main.zig instead.
-const main = @import("main.zig").main;
+pub const main = @import("main.zig").main;
 const std = @import("std");
 const builtin = @import("builtin");
 const console = @import("./console.zig");
@@ -26,7 +26,8 @@ export var multiboot: MultibootHeader align(4) linksection(".multiboot") = .{
     .checksum = -(MAGIC + FLAGS),
 };
 
-// Entry point for the freestanding kernel
+/// Entry point for the freestanding kernel.
+/// Shutdown is only successful upon completion of main().
 export fn _start() callconv(.{ .riscv64_lp64 = .{} }) noreturn {
     main();
     shutdown(true);
@@ -34,6 +35,8 @@ export fn _start() callconv(.{ .riscv64_lp64 = .{} }) noreturn {
 
 pub const panic = std.debug.FullPanic(panicFn);
 
+/// Prints panic messages to the QEMU Console UART,
+/// then exits with failure.
 pub fn panicFn(message: []const u8, first_trace: ?usize) noreturn {
     @branchHint(.cold);
 
@@ -46,6 +49,8 @@ pub fn panicFn(message: []const u8, first_trace: ?usize) noreturn {
     shutdown(false);
 }
 
+/// Interfaces with QEMU to execute kernel shutdown.
+/// Magic numbers provided by UIUC's ECE 391 (idk where they got them).
 pub fn shutdown(comptime success: bool) noreturn {
     @branchHint(.cold);
 
@@ -57,14 +62,14 @@ pub fn shutdown(comptime success: bool) noreturn {
         \\ ecall
         :
         : [halt_eid] "i" (0x0A484c54),
-          [exit_code] "i" (@intFromBool(!success))
+          [exit_code] "i" (@intFromBool(!success)),
         : "a6", "a7"
     );
 
     while (true) {}
 }
 
-// Kernel-wide Options
+/// Kernel-wide Options
 pub const std_options = std.Options{
     .page_size_max = 4096,
     .page_size_min = 4096,
@@ -73,6 +78,6 @@ pub const std_options = std.Options{
 
     // .log_level = .err,
     .log_scope_levels = &.{
-        // .{.scope = .PLIC, .level = .info}, // Don't need debug here anymore
+        .{.scope = .PLIC, .level = .info}, // Don't need debug here anymore
     },
 };

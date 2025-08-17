@@ -1,3 +1,4 @@
+const std = @import("std");
 const config = @import("../config.zig");
 const assert = @import("../util/debug.zig").assert;
 const IO = @import("../api/io.zig");
@@ -44,21 +45,21 @@ const uart_regs = extern struct {
     scr: u8,
 };
 
-const ringbuf = struct {
+const RingBuf = struct {
     hpos: u32 = 0,
     tpos: u32 = 0,
     data: [RBUF_SIZE]u8 = [_]u8{0} ** RBUF_SIZE,
 
-    fn empty(self: *const ringbuf) bool { return self.tpos == self.hpos; }
-    fn full(self: *const ringbuf) bool { return self.tpos - self.hpos == RBUF_SIZE; }
+    fn empty(self: *const RingBuf) bool { return self.tpos == self.hpos; }
+    fn full(self: *const RingBuf) bool { return self.tpos - self.hpos == RBUF_SIZE; }
 
-    fn putc(self: *ringbuf, char: u8) void {
+    fn putc(self: *RingBuf, char: u8) void {
         self.data[self.tpos % RBUF_SIZE] = char;
         asm volatile("" ::: "memory"); // memory barrier
         self.tpos += 1;
     }
 
-    fn getc(self: *ringbuf) u8 {
+    fn getc(self: *RingBuf) u8 {
         defer self.hpos += 1;
         defer asm volatile("" ::: "memory");
         return self.data[self.hpos % RBUF_SIZE];
@@ -72,10 +73,14 @@ regs: *volatile uart_regs,
 irqno: u32,
 instno: u32,
 
-io: IO = .from(Uart),
+io: IO = .new0(.{
+    .close = close,
+    .write = write,
+    .read = read,
+}),
 
-rxbuf: ringbuf = .{},
-txbuf: ringbuf = .{},
+rxbuf: RingBuf = .{},
+txbuf: RingBuf = .{},
 
 full: wait.Condition = .{ .name = "uart full"},
 empty: wait.Condition = .{ .name = "uart empty"},
@@ -107,25 +112,19 @@ pub fn uart0_init() void {
 // IO FUNCTIONS
 //
 
-pub fn attach(mmio_base: *anyopaque, irqno: u32) dev.Error!void {
-    const intf: IO.Intf(Uart) = .{
-        .write = write,
-        .close = close,
-        .read = read
-    };
+pub fn attach(mmio_base: *anyopaque, irqno: u32, allocator: std.mem.Allocator) (dev.Error || std.mem.Allocator.Error)!void {
 
-    const self: *Uart = page.alloc_phys_page(); // TODO: figure out malloc
+    const self: *Uart = try allocator.create(Uart); // TODO: figure out malloc
 
     self.* = .{
         .regs = @ptrCast(mmio_base),
-        .io = IO.new0(&intf),
+        .io = .new0(.{
+            .close = close,
+            .read = read,
+            .write = write,
+        }),
         .irqno = irqno,
-        .instno = try dev.register(.{
-            .name = "uart",
-            .open_fn = open,
-            .devtype = .other,
-            .aux = @ptrCast(self),
-        }), // TODO
+        .instno = try dev.register("uart", open, @ptrCast(self)),
     };
 
 }
@@ -148,18 +147,16 @@ fn close(ioptr: *IO) void {
     intr.disable_source(self.irqno);
 }
 
-// Read up to buf.len bytes
+// Reads exactly buf.len bytes
 fn read(ioptr: *IO, buf: []u8) IO.Error!usize {
     const self: *Uart = @fieldParentPtr("io", ioptr);
-    const pie = intr.disable();
-    while (self.rxbuf.empty())
-        self.empty.wait();
-    intr.restore(pie);
 
-    for (buf, 0..) |_, i|  {
-        if (self.rxbuf.empty())
-            return i;
-        buf[i] = self.rxbuf.getc();
+    for (buf) |*c|  {
+        const pie = intr.disable();
+        while (self.rxbuf.empty())
+            self.empty.wait();
+        intr.restore(pie);
+        c.* = self.rxbuf.getc();
         self.regs.intr.ier |= IER_DRIE;
     }
 

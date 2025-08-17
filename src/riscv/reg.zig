@@ -131,6 +131,6 @@ pub inline fn sfence_vma() void {
     asm volatile ("sfence.vma" ::: "memory");
 }
 
-pub inline fn __sync_synchronize() void {
+pub inline fn fence() void {
     asm volatile ("fence");
 }

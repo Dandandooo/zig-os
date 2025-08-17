@@ -3,9 +3,7 @@ const config = @import("../config.zig");
 
 // Startup functions
 
-pub fn mmode_start
-
-// Physical Memory Protection
+/// Physical Memory Protection
 fn pmp_setup() void {
     // Guard Region (No Access): [0, 0x100)
     // cfg0: 1_00_11_000 == 0x98 (L, NAPOT)

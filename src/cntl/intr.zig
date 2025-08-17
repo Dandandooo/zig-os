@@ -44,7 +44,6 @@ pub inline fn disable() usize {
 }
 
 pub inline fn restore(prev: usize) void {
-    assert((prev & ~reg.SSTATUS_SIE) == 0, "invalid sstatus state!");
     reg.csrc("sstatus", reg.SSTATUS_SIE);
     reg.csrs("sstatus", prev);
 }

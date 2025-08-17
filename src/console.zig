@@ -16,6 +16,10 @@ pub fn init() void {
 
 	initialized = true;
 	std.log.scoped(.CONSOLE).info("initialized", .{});
+	struct_log(
+		.debug, .CONSOLE, "testing struct",
+		.{"test_int: {d}", "test_hex: 0x{X}", "test_ptr: {p}"}, .{123, 160, &&writer}
+	);
 }
 
 fn writefn(_: *const anyopaque, message: []const u8) anyerror!usize {
@@ -59,4 +63,17 @@ pub fn log(
 		.warn => "⚠️ ",
 		.err => "🚨",
 	}, if (scope == .default) null else @tagName(scope), format, args);
+}
+
+pub fn struct_log(
+	comptime level: std.log.Level,
+	comptime scope: @TypeOf(.EnumLiteral),
+	comptime message: []const u8,
+	comptime fields: anytype,
+	values: anytype
+) void {
+	log(level, scope, message, .{});
+	inline for (fields, values) |field, value| {
+		writer.print("               \x1b[35m>>\x1b[0m " ++ field ++ "\n", .{value}) catch @panic("struct print'nt");
+	}
 }

@@ -3,10 +3,10 @@ const heap = @import("./heap.zig");
 const wait = @import("../conc/wait.zig");
 const assert = @import("../util/debug.zig").assert;
 const config = @import("../config.zig");
-const logger = std.log.scoped(.Page);
+const log = std.log.scoped(.PAGE);
 
-pub const start: usize = undefined;
-pub const end: usize = undefined;
+pub var start: usize = undefined;
+pub var end: usize = undefined;
 
 const DLL = @import("../util/list.zig").DLL;
 
@@ -48,9 +48,10 @@ const chunk = struct {
 
 pub var initialized: bool = false;
 pub fn init() void {
+    assert(!initialized, "already initialized!");
     assert(heap.initialized, "need heap to be initialized");
     start = heap.end;
-    end = config.RAM_END_VMA;
+    end = config.RAM_END_PMA;
     assert((end - start) % SIZE == 0, "heap doesn't end on page boundary!");
 
     const begin: *chunk = @ptrFromInt(start);
@@ -63,9 +64,10 @@ pub fn init() void {
 var allock: wait.Lock = .new("allock");
 
 pub fn phys_alloc(cnt: usize) []align(SIZE) u8 {
-    logger.debug("Allocating {d} pages", .{cnt});
+    assert(initialized, "page manager uninitialized!");
+    log.debug("Allocating {d} pages", .{cnt});
 
-    var shortest_size: usize = 0;
+    var shortest_size: usize = 0xFFFF_FFFF_FFFF_FFFF;
     var total_free: usize = 0;
 
     var shortest: ?*chunk = null;
@@ -75,6 +77,7 @@ pub fn phys_alloc(cnt: usize) []align(SIZE) u8 {
 
     var cur = free_chunk_list.head;
     while (cur) |node| : (cur = node.next) {
+        log.debug("Free chunk: {d}", .{node.cnt});
         const free_node = node.cnt;
 
         total_free += free_node;
@@ -96,13 +99,14 @@ pub fn phys_alloc(cnt: usize) []align(SIZE) u8 {
 }
 
 pub fn phys_free(pages: []align(SIZE) u8) void {
+    assert(initialized, "page manager uninitialized!");
     const pma: usize = @intFromPtr(pages.ptr);
     assert(pma % SIZE == 0, "misaligned page free!");
 
     assert(pages.len % SIZE == 0, "mis-sized page free!");
     const cnt = pages.len / SIZE;
 
-    logger.debug("Freeing {d} pages at {*}", .{cnt, pages});
+    log.debug("Freeing {d} pages at {*}", .{cnt, pages});
 
     allock.acquire();
     defer allock.release();

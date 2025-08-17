@@ -22,8 +22,11 @@ const device = struct {
 
 var devtab: [config.NDEV]?device = [_]?device{null} ** config.NDEV;
 
-const Error = error {
-    NoSpace
+pub const Error = error {
+    Unsupported,
+    NotFound,
+    NoSpace,
+    Busy,
 };
 
 pub var initialized = false;
@@ -34,11 +37,19 @@ pub fn init() void {
     initialized = true;
 }
 
-pub fn register(dev: device) Error!u32 {
+pub fn register(name: []const u8, open_fn: *const fn (*anyopaque) IO.Error!*IO, aux: *anyopaque) Error!u32 {
     return for (devtab, 0..) |cur, i| {
         if (cur == null) {
-            devtab[i] = dev;
+            devtab[i] = .{ .name = name, .open_fn = open_fn, .aux = aux };
             break @intCast(i);
         }
     } else Error.NoSpace;
+}
+
+pub fn open(name: []const u8) (IO.Error || Error)!*IO {
+    return for (&devtab) |*maybe| {
+        if (maybe.*) |*dev|
+            if (std.mem.eql(u8, name, dev.name))
+                break dev.open_fn(dev.aux);
+    } else Error.NotFound;
 }
