@@ -109,6 +109,7 @@ smode_start:
 _main_stack_lowest:
         .fill   MAIN_STACK_SIZE, 1, 0xA5
 
+        .balign 16
 _main_stack_anchor:
         .dword  0 # ktp
         .dword  0 # kgp

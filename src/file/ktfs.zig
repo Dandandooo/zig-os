@@ -7,7 +7,8 @@ const heap = @import("../mem/heap.zig");
 
 const Cache = @import("./cache.zig");
 
-pub const BLKSZ = 512;
+pub const ORDER = 9;
+pub const BLKSZ = 1 << ORDER;
 pub const INOSZ = 32;
 pub const DENSZ = 16;
 
@@ -83,22 +84,38 @@ pub const File = struct {
     prev: ?*File,
 
     fn readat(io: *IO, buf: []u8, pos: u64) IO.Error!usize {
+        const self: *File = @fieldParentPtr("io", io);
+        if (buf.len + pos > self.size)
+            return IO.Error.Invalid;
+
+
 
     }
 
     fn writeat(io: *IO, buf: []const u8, pos: u64) IO.Error!usize {
+        const self: *File = @fieldParentPtr("io", io);
+        if (buf.len + pos > self.size)
+            return IO.Error.Invalid;
 
     }
 
     fn close(io: *IO) void {
+        const self: *File = @fieldParentPtr("io", io);
+        assert(self.fs.open_files.find(self) != null, "file not open");
 
     }
 
     fn cntl(io: *IO, cmd: i32, arg: ?*anyopaque) IO.Error!isize {
         const self: *File = @fieldParentPtr("io", io);
         switch (cmd) {
+            IO.IOCTL_GETBLKSZ => return BLKSZ,
             IO.IOCTL_GETEND => return @intCast(self.size),
-            // IO
+            IO.IOCTL_SETEND => {
+                const target_size: usize = @intFromPtr(arg);
+                if (target_size < self.size)
+                    return IO.Error.Invalid;
+
+            },
             else => return IO.Error.Unsupported,
         }
     }
@@ -127,11 +144,9 @@ io: IO = .new0(.{
 }),
 cache: Cache,
 big_blk: [BLKSZ]u8,
-allocator: std.mem.Allocator = heap.allocator,
+allocator: std.mem.Allocator,
 
 
-// IO ENDPOINTS
-//
 
 fn open(aux: *anyopaque) *IO {
     const ktfs: *KTFS = @ptrCast(aux);
@@ -147,32 +162,48 @@ fn cntl(io: *IO, cmd: i32, arg: ?*anyopaque) IO.Error!isize {
     }
 }
 
-
-fn close(io: *IO) void {
-}
-
-fn readat(io: *IO, buf: []u8, pos: u64) IO.Error!usize {
-
-}
-
-fn writeat(io: *IO, buf: []const u8, pos: u64) IO.Error!usize {
-
-}
-
 // INTERNAL HELPERS
 //
 
-const block_error = (std.mem.Allocator.Error || IO.Error);
+const Error = error {
+    NoEntry,
+    Full
+};
+const block_error = std.mem.Allocator.Error || IO.Error;
+const get_error = block_error || Error;
+
+fn find_free(self: *KTFS) get_error!u64 {
+    return outer: for (1..1+self.superblock.bitmap_block_count) | i | {
+        // Larger size for more granular search
+        const blk: []u64 = @ptrCast(try self.cache.get_const(i << ORDER));
+        for (0.., blk) | j, range | {
+            if (~range > 0) {
+                for (0.., @as([8]u8, @bitCast(range))) |k, byte| {
+                    if (~byte > 0) {
+                        inline for (0..8) |l| {
+                            if ((1 << k) & ~byte){
+                                // Give branch hint since
+                                @branchHint(.unlikely);
+                                break :outer ((i-1) << ORDER) + (j << 6) + (k << 3) + l;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else Error.Full;
+}
 
 fn bitmap_modify(self: *KTFS, pos: u64, used: bool) block_error!void {
     assert((pos & (BLKSZ-1)) == 0, "must be block aligned!");
-    const bitpos = 1 + pos / (8 * BLKSZ * BLKSZ);
+    const blkno = pos >> ORDER;
+    const bitno = 1 + (blkno >> ORDER);
 
-    const blk: []u8 = try self.cache.get(blkno * BLKSZ);
-    const bitblk: *BitMapBlock = @ptrCast(blk.ptr[0]);
-    defer self.cache.release(blk, true);
+    const blk: []u8 = try self.cache.get(bitno << ORDER);
+    defer self.cache.release(blk);
 
-    bitblk.bits[pos % (8 * BLKSZ)] = used;
+    const bitblk: *BitMapBlock = @ptrCast(blk.ptr[0]); // ([*]u8)[0] -> *BitMapBlock
+    bitblk.bits[pos % (8 << ORDER)] = used;
 }
 
 const BlockLevel = enum(u8) {
@@ -194,7 +225,7 @@ fn dealloc_block(self: *KTFS, pos: u64, level: BlockLevel) block_error!void {
 
         for (blk) |blkpos| {
             if (blkpos > 0)
-                try dealloc_block(self, blkpos, @enumFromInt(lvl-1))
+                try dealloc_block(self, blkpos, @enumFromInt(lvl-1));
         }
     }
 

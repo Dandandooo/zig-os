@@ -39,23 +39,33 @@ pub const MEGA_SIZE = SIZE << 9;
 pub const GIGA_SIZE = MEGA_SIZE << 9;
 
 // Embedded DLL Storing
+
 var free_chunk_list = DLL(chunk){};
-const chunk = struct {
+
+pub const ty = []align(SIZE) u8;
+pub const chunk = struct {
     cnt: usize,
     next: ?*chunk = null,
     prev: ?*chunk = null,
+    // _pad: [SIZE-@sizeOf(usize)-2*@sizeOf(?*chunk)]u8 = undefined
 };
 
 pub var initialized: bool = false;
 pub fn init() void {
     assert(!initialized, "already initialized!");
     assert(heap.initialized, "need heap to be initialized");
-    start = heap.end;
+    start = round_up(heap.end);
     end = config.RAM_END_PMA;
     assert((end - start) % SIZE == 0, "heap doesn't end on page boundary!");
 
+    log.debug("page start: 0x{X}", .{start});
+    log.debug("page end: 0x{X}", .{end});
+
+    log.debug("initializing page", .{});
     const begin: *chunk = @ptrFromInt(start);
+    log.debug("initializing page", .{});
     begin.* = chunk{ .cnt = (end - start) >> ORDER};
+    log.debug("initializing page", .{});
     free_chunk_list.append(begin);
     initialized = true;
 }
@@ -81,7 +91,7 @@ pub fn phys_alloc(cnt: usize) []align(SIZE) u8 {
         const free_node = node.cnt;
 
         total_free += free_node;
-        if (shortest_size > free_node) {
+        if (shortest_size > free_node and free_node >= cnt) {
             shortest_size = free_node;
             if (free_node >= cnt) shortest = node;
             if (free_node == cnt) break; // cut early
@@ -92,7 +102,13 @@ pub fn phys_alloc(cnt: usize) []align(SIZE) u8 {
 
     assert(cnt <= shorty.cnt, "shorty ain't packing enough!");
 
-    const new_shorty: *chunk = if (shortest_size == cnt) free_chunk_list.pop(shorty).? else @ptrFromInt(@intFromPtr(shorty) + (shorty.cnt - cnt) * SIZE);
+    var new_shorty: *chunk = undefined;
+    if (shorty.cnt == cnt) {
+        new_shorty = free_chunk_list.pop(shorty).?;
+    } else {
+        shorty.cnt -= cnt;
+        new_shorty = @ptrFromInt(@intFromPtr(shorty) + (shorty.cnt) * SIZE);
+    }
     const new_page: []align(SIZE) u8 = @alignCast(@as([*]u8, @ptrCast(new_shorty))[0..cnt*SIZE]);
     defer @memset(new_page, 0);
     return new_page;
@@ -106,7 +122,7 @@ pub fn phys_free(pages: []align(SIZE) u8) void {
     assert(pages.len % SIZE == 0, "mis-sized page free!");
     const cnt = pages.len / SIZE;
 
-    log.debug("Freeing {d} pages at {*}", .{cnt, pages});
+    log.debug("Freeing {d} pages at 0x{X}", .{cnt, pma});
 
     allock.acquire();
     defer allock.release();
@@ -123,17 +139,29 @@ pub fn phys_free(pages: []align(SIZE) u8) void {
             prev.cnt += cnt; // merge new free block with previous
             new_node = prev;
         } else {
-            new_node = @alignCast(@ptrCast(pages));
-            new_node.* = chunk{ .cnt = cnt, .prev = prev, .next = next_node };
+            new_node = @alignCast(@ptrCast(pages.ptr));
+            new_node.* = chunk{ .cnt = cnt, .prev = prev, .next = prev.next };
             prev.next = new_node;
+            // free_chunk_list.insert(new_node, prev);
         }
+    } else {
+        new_node = @alignCast(@ptrCast(pages.ptr));
+        new_node.* = chunk{ .cnt = cnt, .prev = null, .next = next_node };
+        free_chunk_list.head = new_node;
     }
 
     if (next_node) |next| {
         next.prev = new_node;
-        if (@intFromPtr(next) == pma + (cnt << ORDER)) { // coalesce
+        new_node.next = next;
+        if (@intFromPtr(next) == @intFromPtr(new_node) + (new_node.cnt << ORDER)) { // coalesce
             new_node.cnt += next.cnt;
-            _ = free_chunk_list.pop(next);
+            new_node.next = next.next;
+            if (next.next) |nn| {
+                nn.prev = new_node;
+            } else {
+                free_chunk_list.tail = new_node;
+            }
+            // _ = free_chunk_list.pop(next);
         }
     } else free_chunk_list.tail = new_node;
 }
@@ -142,47 +170,14 @@ pub fn free_page_cnt() usize {
     var sum: usize = 0;
     var cur = free_chunk_list.head;
     while (cur) |node| : (cur = node.next) { sum += node.cnt; }
+    log.debug("Free pages: {d}", .{sum});
     return sum;
 }
 
 pub fn free_chunk_cnt() usize {
-    var cnt = 0;
+    var cnt: usize = 0;
     var cur = free_chunk_list.head;
     while (cur) |node| : (cur = node.next) { cnt += 1; }
+    log.debug("Free chunks: {d}", .{cnt});
     return cnt;
-}
-
-// TESTING
-const expect = std.testing.expect;
-test "allocate all at once" {
-    const orig = free_page_cnt();
-    try expect(free_chunk_cnt() == 1);
-
-    const pp = phys_alloc(orig);
-
-    try expect(free_page_cnt() == 0);
-    try expect(free_chunk_cnt() == 0);
-
-    phys_free(pp, orig);
-
-    try expect(free_page_cnt() == orig);
-    try expect(free_chunk_cnt() == 1);
-}
-
-test "coalescing" {
-    const orig = free_page_cnt();
-    const num = 100;
-    const pps: [num]*anyopaque = undefined;
-
-    for (0..num) |i|
-        pps[i] = phys_alloc(1);
-
-    try expect(free_page_cnt() + num == orig);
-    try expect(free_chunk_cnt() == 1);
-
-    for (0..num) |i|
-        phys_free(pps[(7 * i) % num]);
-
-    try expect(free_page_cnt() == orig);
-    try expect(free_chunk_cnt() == 1);
 }

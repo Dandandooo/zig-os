@@ -2,3 +2,5 @@
 zig-out
 flake.lock
 qemu.log
+.vscode/
+*.code-workspace

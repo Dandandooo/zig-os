@@ -6,6 +6,7 @@
 const std = @import("std");
 const assert = @import("../util/debug.zig").assert;
 const mem = @import("std").mem;
+const wait = @import("../conc/wait.zig");
 
 // Exported Constants
 //
@@ -35,24 +36,25 @@ pub const iointf = struct {
 
 const IO = @This();
 
-intf: iointf,
+intf: *const iointf,
 refcnt: usize = 0,
+lock: wait.Lock,
 
 // IO Object Creation
 
-pub fn new0(intf: iointf) IO { return .{ .intf = intf}; }
+pub fn new0(name: []const u8, intf: *const iointf) IO {
+    return .{ .intf = intf, .lock = .new(name) };
+}
 
 pub fn from(comptime T: type) IO {
-    _ = T;
-    @compileError("this only reads public");
-    // return .new0(.{
-    //     .cntl = if (@hasDecl(T, "cntl")) T.cntl else null,
-    //     .read = if (@hasDecl(T, "read")) T.read else null,
-    //     .readat = if (@hasDecl(T, "readat")) T.readat else null,
-    //     .write = if (@hasDecl(T, "write")) T.write else null,
-    //     .writeat = if (@hasDecl(T, "writeat")) T.writeat else null,
-    //     .close = if (@hasDecl(T, "close")) T.close else null,
-    // });
+    return .new0(@typeName(T) ++ " io lock", &.{
+        .cntl = if (@hasDecl(T, "cntl")) T.cntl else null,
+        .read = if (@hasDecl(T, "read")) T.read else null,
+        .readat = if (@hasDecl(T, "readat")) T.readat else null,
+        .write = if (@hasDecl(T, "write")) T.write else null,
+        .writeat = if (@hasDecl(T, "writeat")) T.writeat else null,
+        .close = if (@hasDecl(T, "close")) T.close else null,
+    });
 }
 
 // pub fn new1(comptime T: type, intf: iointf) io { return .{ .intf = intf, .refcnt = 1 }; }
@@ -109,12 +111,7 @@ pub fn create_pipe(wioptr: **IO, rioptr: **IO) void {_ = wioptr; _ = rioptr; } /
 // Mem IO
 //
 const MemIO = struct {
-    io: IO = new0(&.{
-        .readat = MemIO.readat,
-        .writeat = MemIO.writeat,
-        .cntl = MemIO.cntl,
-
-    }),
+    io: IO = .from(MemIO),
 
     buf: [] u8,
 
@@ -125,7 +122,7 @@ const MemIO = struct {
         // TODO
     }
 
-    fn readat(ioptr: *IO, buf: [] u8, pos: u64) Error!usize {
+    pub fn readat(ioptr: *IO, buf: [] u8, pos: u64) Error!usize {
         const self: *MemIO = @fieldParentPtr("io", ioptr);
         if (pos + buf.len > self.*.size)
             return Error.Invalid;
@@ -135,7 +132,7 @@ const MemIO = struct {
         return buf.len;
     }
 
-    fn writeat(ioptr: *IO, buf: []const u8, pos: u64) Error!usize {
+    pub fn writeat(ioptr: *IO, buf: []const u8, pos: u64) Error!usize {
         const self: *MemIO = @fieldParentPtr("io", ioptr);
         if (pos + buf.len > self.*.size)
             return Error.Invalid;
@@ -145,9 +142,9 @@ const MemIO = struct {
         return buf.len;
     }
 
-    fn close() void {}
+    pub fn close() void {}
 
-    fn cntl(ioptr: *IO, cmd: i32, arg: *anyopaque) Error!i32 {
+    pub fn cntl(ioptr: *IO, cmd: i32, arg: *anyopaque) Error!i32 {
         const self: *MemIO = @fieldParentPtr("io", ioptr);
         _ = arg;
         return switch (cmd) {
@@ -159,61 +156,57 @@ const MemIO = struct {
 };
 
 
-test "memio readat" {
-    // TODO
-}
-
-test "memio writeat" {
-    // TODO
-}
-
 // Null IO
 pub const NullIO = struct {
-    io: IO = new0(&.{
-        .read = NullIO.read,
-        .write = NullIO.write,
-        .close = NullIO.close,
-    }),
+    io: IO = .from(NullIO),
 
-    fn read(_: *IO, buf: []u8) Error!usize {
+    pub fn read(_: *IO, buf: []u8) Error!usize {
         @memset(buf, 0);
         return buf.len;
     }
 
-    fn write(_: *IO, buf: []const u8) Error!usize {
+    pub fn write(_: *IO, buf: []const u8) Error!usize {
         return buf.len;
     }
 
-    fn close(_: *IO) void {}
+    pub fn close(_: *IO) void {}
 };
 
 
-test "nullio read" {
-    const buf = [_]u8{0xFF, 1, 2};
-    const self: NullIO = .{};
-    const num = self.read(buf);
-    try std.testing.expect(num);
-    try std.testing.expect(buf[0] == 0);
-    try std.testing.expect(buf[1] == 0);
-    try std.testing.expect(buf[2] == 0);
-}
-
-test "nullio write" {
-    // FIXME: I think I need to write my own allocator
-    const exbuf: [5]u8 = [_]u8{1, 2, 3, 4, 5};
-    const self: NullIO = .{};
-    self.write(&exbuf, 5);
-
-    try std.testing.expect(exbuf[2] == 3);
-}
-
 // Seek IO
 const SeekIO = struct {
-    io: IO,
+    // io: IO = .new0(&SeekIO.intf),
     bkgio: *IO,
 
-    pos: u64,
-    end: u64,
+    pos: u64 = 0,
+    end: u64 = 0,
 
     blksz: u32, // of backing device
+
+    // const intf: iointf = .{
+    //     .read = SeekIO.read,
+    //     .write = SeekIO.write,
+    //     .close = SeekIO.close,
+    //     .cntl = SeekIO.cntl,
+    // };
+
+    // pub fn from(io: *IO) SeekIO {
+    //     return .{ .bkgio = io };
+    // }
+
+    // fn read(self: *IO, buf: []u8) Error!usize {
+
+    // }
+
+    // fn write(self: *IO, buf: []const u8) Error!usize {
+
+    // }
+
+    // fn close(self: *IO) void {
+
+    // }
+
+    // fn cntl(self: *IO, cmd: i32, arg: ?*anyopaque) Error!usize {
+
+    // }
 };

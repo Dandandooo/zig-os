@@ -15,6 +15,7 @@ const LCR_DLAB: u8 = 1 << 7;
 const LSR_OE: u8 = 1 << 1;
 const LSR_DR: u8 = 1 << 0;
 const LSR_THRE: u8 = 1 << 5;
+const LSR_TEMT: u8 = 1 << 6;
 const IER_DRIE: u8 = 1 << 0;
 const IER_THREIE: u8 = 1 << 1;
 
@@ -73,11 +74,7 @@ regs: *volatile uart_regs,
 irqno: u32,
 instno: u32,
 
-io: IO = .new0(.{
-    .close = close,
-    .write = write,
-    .read = read,
-}),
+io: IO = .from(Uart),
 
 rxbuf: RingBuf = .{},
 txbuf: RingBuf = .{},
@@ -104,8 +101,8 @@ pub fn uart0_init() void {
     uart0.regs.rw.dll = 0x01;
     uart0.regs.intr.dlm = 0x00;
 
-    uart0.regs.lcr = 0x00;
-
+    uart0.regs.lcr = 0x03;
+    uart0.regs.reg2.fcr = 0x07;
 }
 
 
@@ -118,11 +115,6 @@ pub fn attach(mmio_base: *anyopaque, irqno: u32, allocator: std.mem.Allocator) (
 
     self.* = .{
         .regs = @ptrCast(mmio_base),
-        .io = .new0(.{
-            .close = close,
-            .read = read,
-            .write = write,
-        }),
         .irqno = irqno,
         .instno = try dev.register("uart", open, @ptrCast(self)),
     };
@@ -142,13 +134,13 @@ pub fn open(aux: *anyopaque) IO.Error!*IO {
     return &self.io;
 }
 
-fn close(ioptr: *IO) void {
+pub fn close(ioptr: *IO) void {
     const self: *Uart = @fieldParentPtr("io", ioptr);
     intr.disable_source(self.irqno);
 }
 
 // Reads exactly buf.len bytes
-fn read(ioptr: *IO, buf: []u8) IO.Error!usize {
+pub fn read(ioptr: *IO, buf: []u8) IO.Error!usize {
     const self: *Uart = @fieldParentPtr("io", ioptr);
 
     for (buf) |*c|  {
@@ -181,22 +173,41 @@ pub fn write(ioptr: *IO, buf: []const u8) IO.Error!usize {
 
 fn isr(aux: *anyopaque) void {
     const self: *Uart = @alignCast(@ptrCast(aux));
-    if (self.regs.lsr & LSR_DR > 0) {
+    if ((self.regs.lsr & LSR_DR) > 0) {
         if (!self.rxbuf.full()) {
             self.rxbuf.putc(self.regs.rw.rbr);
             self.empty.broadcast(); // Wake threads waiting on empty rbuf
         } else { self.regs.intr.ier &= ~IER_DRIE; }
     }
 
-    if (self.regs.lsr & LSR_THRE > 0) {
-        if (!self.txbuf.full()) {
+    if ((self.regs.lsr & LSR_THRE) > 0) {
+        if (!self.txbuf.empty()) {
             self.regs.rw.thr = self.txbuf.getc();
             self.full.broadcast(); // Wake threads waiting on full rbuf
         } else { self.regs.intr.ier &= ~IER_THREIE; }
     }
 }
 
+var tx_lock: u8 = 0;
+
+fn lock_tx() void {
+    while (@cmpxchgStrong(u8, &tx_lock, 0, 1, .seq_cst, .seq_cst) != null) {}
+}
+
+fn unlock_tx() void {
+    @atomicStore(u8, &tx_lock, 0, .seq_cst);
+}
+
 pub fn console_putc(c: u8) void {
-    while (!(uart0.regs.lsr & LSR_THRE > 0)) continue;
+    lock_tx();
+    defer unlock_tx();
+
+    while ((uart0.regs.lsr & LSR_THRE) == 0) {}
     uart0.regs.rw.thr = c;
+    while ((uart0.regs.lsr & LSR_TEMT) == 0) {}
+}
+
+pub fn console_getc() u8 {
+    while ((uart0.regs.lsr & LSR_DR) == 0) continue;
+    return uart0.regs.rw.rbr;
 }

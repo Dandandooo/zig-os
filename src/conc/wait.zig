@@ -104,6 +104,18 @@ pub const Lock = struct {
         self.owner = null;
         self.cond.signal();
     }
+
+    pub fn acquire_all(locks: anytype) void {
+        var pie = intr.disable();
+        while (inline for (locks) |lock| {
+            if (lock.owner) break true;
+        } else false) {
+            intr.restore(pie);
+            pie = intr.disable();
+        }
+        inline for (locks) | lock | lock.acquire();
+        intr.restore(pie);
+    }
 };
 
 /// One writer or many readers

@@ -56,6 +56,7 @@ fn get_block(self: *Cache, pos: u8, ro: bool) block_error![]u8 {
 
 fn fetch(self: *Cache, pos: u8) block_error!*cache_elem {
     const elem = try self.allocator.create(cache_elem);
+    errdefer self.allocator.destroy(elem);
     elem.* = .{ .pos = pos };
     _ = try self.bkgio.readat(elem.data, pos);
     self.data.prepend(elem);
@@ -76,18 +77,19 @@ fn clear_tail(self: *Cache, num: usize) IO.Error!void {
     var errored = false;
     var i = num;
     var cur = self.data.tail;
-    while (cur) | elem | : ({cur = elem.next; i -= 1}) {
+    while (cur) | elem | : ({cur = elem.next; i -= 1;}) {
         if (i <= 0) break;
 
         if (elem.dirty) {
             self.bkgio.writeat(elem.data, elem.pos) catch |err| {
-                log.err("Failed to save block {d} ({s}), keeping in cache", .{pos, @errorName(err)});
+                log.err("Failed to save block {d} ({s}), keeping in cache", .{elem.pos, @errorName(err)});
+                errored = true;
                 continue;
             };
         }
 
         self.allocator.destroy(elem);
-        _ = self.data.pop(cur)
+        _ = self.data.pop(cur);
     }
 
     if (errored)

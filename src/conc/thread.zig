@@ -59,7 +59,7 @@ const ctx_entry_fn_idx = 8;
 
 const status = enum { uninitialized, waiting, running, ready, exited };
 
-const stack_anchor = struct {
+const stack_anchor = extern struct {
     ktp: *Thread,
     /// kgp is unused in this kernel
     kgp: *anyopaque = undefined,

@@ -48,7 +48,7 @@ regs: *volatile virtio.mmio_regs,
 instno: u32,
 irqno: u32,
 
-io: IO = .new0(.{
+io: IO = .new0(&.{
     .ctnl = cntl,
     .close = close,
     .readat = readat,
@@ -159,8 +159,8 @@ fn interact(io: *IO, request: types, data_addr: u64, len: u32, pos: u64) IO.Erro
 
     self.vq.head.req_type = request;
     self.vq.head.sector = pos;
-    self.vq.desc[DESC_DATA].addr = @intFromPtr(buf.ptr);
-    self.vq.desc[DESC_DATA].len = @intCast(buf.len);
+    self.vq.desc[DESC_DATA].addr = data_addr;
+    self.vq.desc[DESC_DATA].len = len;
 
     switch (request) {
         .in => self.vq.desc[DESC_DATA].flags.write = false,
@@ -182,7 +182,7 @@ fn interact(io: *IO, request: types, data_addr: u64, len: u32, pos: u64) IO.Erro
     intr.restore(pie);
 
     return switch (self.vq.stat) {
-        .OK => buf.len,
+        .OK => len,
         .IOError => IO.Error.Error,
         .Unsupported => IO.Error.Unsupported,
         else => unreachable

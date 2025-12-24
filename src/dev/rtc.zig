@@ -14,10 +14,7 @@ const BLKSZ = 8;
 
 regs: *volatile rtc_regs,
 instno: u32,
-io: IO = .new0(.{
-	.cntl = cntl,
-	.read = read,
-}),
+io: IO = .from(rtc_device),
 
 // Exported functions
 pub fn attach(mmio_base: *volatile rtc_regs) (dev.Error || std.mem.Allocator.Error)!void {
@@ -33,7 +30,7 @@ fn open(aux: *anyopaque) IO.Error!*IO {
 }
 
 /// IOCTL for RTC, currently only supports GETBLKSZ
-fn cntl(_: *IO, cmd: i32, _: ?*anyopaque) IO.Error!isize {
+pub fn cntl(_: *IO, cmd: i32, _: ?*anyopaque) IO.Error!isize {
 	log.debug("ioctl, cmd={d}", .{cmd});
 	return switch (cmd) {
 		IO.IOCTL_GETBLKSZ => BLKSZ,
@@ -42,7 +39,7 @@ fn cntl(_: *IO, cmd: i32, _: ?*anyopaque) IO.Error!isize {
 }
 
 /// Reads real time into appropriately sized buffer
-fn read(io: *IO, buf: []u8) IO.Error!usize {
+pub fn read(io: *IO, buf: []u8) IO.Error!usize {
 	assert(buf.len == BLKSZ, "mis-sized read");
 	assert((@intFromPtr(buf.ptr) & 3 == 0), "mis-aligned read");
 	const buf32 = @as([*]u32, @ptrCast(@alignCast(buf.ptr)))[0..2];
@@ -66,7 +63,9 @@ pub fn log_time() void {
 const time_zone = enum {
 	PST,
 	CST,
+	CDT,
 	EST,
+	EDT,
 	UTC,
 	GMT,
 	CET,
@@ -76,7 +75,9 @@ const time_zone = enum {
 		return switch (self) {
 			.PST => -8,
 			.CST => -6,
+			.CDT,
 			.EST => -5,
+			.EDT => -4,
 			.GMT,
 			.UTC => 0,
 			.CET => 1,

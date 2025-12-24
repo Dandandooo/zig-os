@@ -1,14 +1,14 @@
-const assert = @import("std").debug.assert;
 const std = @import("std");
 const log = std.log.scoped(.DLL);
+const assert = @import("debug.zig").assert;
 
 // Generic Doubly-Linked-List, node type T
 pub fn DLL(comptime Node: type) type {
     comptime {
-        assert(@hasField(Node, "next"));
-        assert(@hasField(Node, "prev"));
-        assert(@FieldType(Node, "next") == ?*Node);
-        assert(@FieldType(Node, "prev") == ?*Node);
+        assert(@hasField(Node, "next"), "type needs to have pred");
+        assert(@hasField(Node, "prev"), "type needs to have next");
+        assert(@FieldType(Node, "next") == ?*Node, "improper pointer type");
+        assert(@FieldType(Node, "prev") == ?*Node, "improper pointer type");
     }
     return struct {
         head: ?*Node = null,
@@ -18,9 +18,9 @@ pub fn DLL(comptime Node: type) type {
         const Self = @This();
 
         pub fn prepend(self: *Self, node: *Node) void {
-            assert(node.next == null and node.prev == null);
+            assert(node.next == null and node.prev == null, "node already attached");
             if (self.head == null) {
-                assert(self.tail == null);
+                assert(self.tail == null, "list with tail but no head");
                 self.tail = node;
             } else {
                 node.next = self.head;
@@ -30,9 +30,9 @@ pub fn DLL(comptime Node: type) type {
         }
 
         pub fn append(self: *Self, node: *Node) void {
-            assert(node.next == null and node.prev == null);
+            assert(node.next == null and node.prev == null, "node already attached");
             if (self.tail == null) {
-                assert(self.head == null);
+                assert(self.head == null, "list with head but no tail");
                 self.head = node;
             } else {
                 self.tail.?.next = node;
@@ -41,18 +41,35 @@ pub fn DLL(comptime Node: type) type {
             self.size += 1;
         }
 
+        pub fn insert(self: *Self, node: *Node, after: ?*Node) void {
+            if (after) |n|
+                assert(self.find(n) != null, "must insert into list");
+            assert(self.find(node) == null, "node already in list");
+
+            if (after == null)
+                return self.prepend(node);
+            if (after == self.tail)
+                return self.append(node);
+
+            const prev = after.?;
+            prev.next.?.prev = node;
+            node.next = prev.next;
+            prev.next = node;
+            node.prev = prev;
+        }
+
         pub fn pop(self: *Self, node: ?*Node) ?*Node {
             const item = node orelse return null;
 
-            assert(self.find(item) != null); // item not in list
+            assert(self.find(item) != null, "item not in list");
 
             if (item == self.head.?) {
-                assert(item.prev == null);
+                assert(item.prev == null, "head is not the first");
                 self.head = self.head.?.next;
             } else item.prev.?.next = item.next;
 
             if (item == self.tail.?) {
-                assert(item.next == null);
+                assert(item.next == null, "tail is not the last");
                 self.tail = self.tail.?.prev;
             } else item.next.?.prev = item.prev;
 
@@ -72,8 +89,8 @@ pub fn DLL(comptime Node: type) type {
         }
 
         pub fn find_field(self: *Self, comptime field: []const u8, value: anytype) ?*Node {
-            comptime assert(@hasField(Node, field));
-            comptime assert(@FieldType(Node, field) == @TypeOf(value));
+            comptime assert(@hasField(Node, field), "field not present in type");
+            comptime assert(@FieldType(Node, field) == @TypeOf(value), "field is wrong type");
             var cur: ?*Node = self.head;
             return while (cur) |cur_node| : (cur = cur_node.next) {
                 if (@field(cur_node, field) == value) break cur_node;
@@ -109,8 +126,8 @@ pub fn DLL(comptime Node: type) type {
 
 pub fn LL(comptime Node: type) type {
     comptime {
-        assert(@hasField(Node, "next"));
-        assert(@TypeOf(Node.next) == ?*Node);
+        assert(@hasField(Node, "next"), "node must have next pointer");
+        assert(@TypeOf(Node.next) == ?*Node, "next must be same type as current");
     }
     return struct {
         head: ?*Node = null,

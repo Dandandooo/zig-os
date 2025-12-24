@@ -3,6 +3,8 @@
 //! is to delete this file and start with root.zig instead.
 const std = @import("std");
 const config = @import("config.zig");
+// const tests = @import("tests.zig");
+const build_options = @import("build_options");
 
 const io = @import("api/io.zig");
 
@@ -22,6 +24,7 @@ const dev = @import("dev/device.zig");
 const rtc = @import("dev/rtc.zig");
 // const fs = @import("file/fs.zig");
 
+
 pub fn main() void {
     // Control
     cons.init();
@@ -30,6 +33,8 @@ pub fn main() void {
 
     // Memory
     heap.init();
+
+
 
     // Concurrency
     thread.init();
@@ -44,16 +49,9 @@ pub fn main() void {
     // vmem.init(); // FIXME
 
 
-    rtc.log_time();
-}
+    rtc.log_time_zone(.EST);
 
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
+    if (build_options.test_mode)
+        return @import("tests/runner.zig").run();
+
 }

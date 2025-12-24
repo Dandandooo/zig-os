@@ -7,6 +7,9 @@ const Io = @import("./api/io.zig");
 const assert = @import("./util/debug.zig").assert;
 
 const writer = std.io.AnyWriter{ .context = undefined, .writeFn = writefn };
+var enabled = true; // controls "print"
+pub fn enable() void { enabled = true; }
+pub fn disable() void { enabled = false; }
 
 pub var initialized = false;
 pub fn init() void {
@@ -16,20 +19,24 @@ pub fn init() void {
 
 	initialized = true;
 	std.log.scoped(.CONSOLE).info("initialized", .{});
-	struct_log(
-		.debug, .CONSOLE, "testing struct",
-		.{"test_int: {d}", "test_hex: 0x{X}", "test_ptr: {p}"}, .{123, 160, &&writer}
-	);
+	// struct_log(
+	//  .debug, .CONSOLE, "testing struct",
+	//  .{"test_int: {d}", "test_hex: 0x{X}", "test_ptr: {p}"}, .{123, 160, &&writer}
+	// );
 }
 
 fn writefn(_: *const anyopaque, message: []const u8) anyerror!usize {
 	assert(initialized == true, "where are you printing to?");
-	for (message) |c|
-		Uart.console_putc(c);
+
+    for (message) |c|
+        Uart.console_putc(c);
 	return message.len;
 }
 
 pub fn print(comptime format: []const u8, args:anytype) void {
+    if (!enabled) return;
+    const pie = intr.disable();
+    defer intr.restore(pie);
 	writer.print(format, args) catch @panic("couldn't print!");
 }
 
@@ -48,8 +55,15 @@ pub fn icon_print(
 
 	chroma_idx = (chroma_idx + 1) % chroma.len;
 
-	writer.print(header ++ format ++ "\n", head_args ++ args) catch @panic("print'nt");
+	print(header ++ format, head_args ++ args);
 }
+
+pub fn icon_println(
+	comptime icon: []const u8,
+	comptime scope: ?[]const u8,
+	comptime format: []const u8,
+	args: anytype
+) void { icon_print(icon, scope, format ++ "\n", args); }
 
 pub fn log(
 	comptime level: std.log.Level,
@@ -57,7 +71,7 @@ pub fn log(
 	comptime format: []const u8,
 	args: anytype
 ) void {
-	icon_print(switch (level) {
+	icon_println(switch (level) {
 		.debug => "🐞",
 		.info => "ℹ️ ",
 		.warn => "⚠️ ",
@@ -74,6 +88,7 @@ pub fn struct_log(
 ) void {
 	log(level, scope, message, .{});
 	inline for (fields, values) |field, value| {
-		writer.print("               \x1b[35m>>\x1b[0m " ++ field ++ "\n", .{value}) catch @panic("struct print'nt");
+		// writer.print("               \x1b[35m>>\x1b[0m " ++ field ++ "\n", .{value}) catch @panic("struct print'nt");
+		writer.print("  \x1b[35m=>\x1b[0m " ++ field ++ "\n", .{value}) catch @panic("struct print'nt");
 	}
 }

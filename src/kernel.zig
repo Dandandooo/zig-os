@@ -54,7 +54,7 @@ pub fn panicFn(message: []const u8, first_trace: ?usize) noreturn {
 pub fn shutdown(comptime success: bool) noreturn {
     @branchHint(.cold);
 
-    console.icon_print("💀", "KILLED", "{s}\x1b[0m", .{if (success) "\x1b[32msuccess" else "\x1b[31mfailure"});
+    console.icon_println("💀", "KILLED", "{s}\x1b[0m", .{if (success) "\x1b[32msuccess" else "\x1b[31mfailure"});
 
     asm volatile (
         \\ li a7, %[halt_eid]

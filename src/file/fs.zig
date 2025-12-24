@@ -10,12 +10,7 @@ const FS = @This();
 
 fs_type: FsType,
 
-
-pub const Error = error {
-    NotFound,
-    Busy,
-    Invalid,
-};
+pub const Error = error{ NotFound, Busy, Invalid, Unsupported };
 
 pub const FsType = enum {
     fat,
@@ -36,14 +31,16 @@ pub fn query_fs_type(fs: FsType) type {
 pub fn print_fs_sizes() void {
     inline for (comptime std.enums.values(FsType)) |f| {
         const T = query_fs_type(f);
-        log.debug("{s}: {d} bytes", .{@tagName(f), @sizeOf(T)});
+        log.debug("{s}: {d} bytes", .{ @tagName(f), @sizeOf(T) });
     }
 }
 
 pub fn mount(t: FsType, aux: *anyopaque) Error!void {
     const T = query_fs_type(t);
-    assert(@hasDecl(T, "mount"), "unmountable filesystem");
-    assert(@TypeOf(T.mount) == fn (*anyopaque) Error!void, "invalid mount function");
+    if (!@hasDecl(T, "mount"))
+        return Error.Unsupported;
+    if (@TypeOf(T.mount) != fn (*anyopaque) Error!void)
+        return Error.Invalid;
 
     return T.mount(aux);
 }
