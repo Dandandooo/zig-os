@@ -11,7 +11,7 @@ pub var end: usize = undefined;
 pub var buffer: []u8 = undefined;
 
 var initial_heap: std.heap.FixedBufferAllocator = undefined;
-pub const initial_allocator: std.mem.Allocator = undefined;
+pub var initial_allocator: std.mem.Allocator = undefined;
 
 pub var initialized: bool = false;
 pub fn init() void {
@@ -25,7 +25,7 @@ pub fn init() void {
     initialized = true;
     page.init();
 
-    // initial_heap = .{.buffer = buffer};
+    // initial_heap = .init(buffer);
     // initial_allocator = initial_heap.allocator();
 }
 
