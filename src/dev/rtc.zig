@@ -91,7 +91,7 @@ pub fn log_time_zone(zone: time_zone) void {
 	const mins: u64 = secs / 60;
 	const hours: u64 = @as(u64, @intCast((@as(i64, @intCast(mins / 60 + 24))) + zone.offset())) % 24;
 	log.info("Current Time: {d:>2}:{d:0>2}:{d:0>2} {s} {s}",
-	.{(hours - 1) % 12 + 1, mins % 60, secs % 60, if (hours > 11) "PM" else "AM", @tagName(zone)});
+	.{(hours + 11) % 12 + 1, mins % 60, secs % 60, if (hours > 11) "PM" else "AM", @tagName(zone)});
 }
 
 pub fn log_all_zones() void {
