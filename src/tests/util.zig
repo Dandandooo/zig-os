@@ -41,7 +41,7 @@ pub fn run_tests(comptime scope: []const u8, comptime tests: anytype) test_resul
 
         cons.icon_print(running, scope, "{s}", .{name});
 
-        cons.disable();
+        // cons.disable();
 
         total += 1;
         tfunc() catch |err| {
@@ -49,14 +49,29 @@ pub fn run_tests(comptime scope: []const u8, comptime tests: anytype) test_resul
             failed += 1;
         };
 
-        cons.enable();
+        // cons.enable();
 
         if (terror) |err| cons.icon_println(reset ++ fail, scope, "\x1b[31m{s}\x1b[0m: {s}", .{name, @errorName(err)})
         else cons.icon_println(reset ++ pass, scope, "\x1b[32m{s}\x1b[0m", .{name});
     }
 
-    cons.icon_println(results, scope, "Passed {d}/{d} tests", .{ total - failed, total });
+    // cons.icon_println(results, scope, "Passed {d}/{d} tests", .{ total - failed, total });
     return .{ .passed = total - failed, .total = total };
+}
+
+pub fn merge_results(comptime scope: ?[]const u8, res: []const test_results) test_results {
+    _ = scope;
+    var passed: u32 = 0;
+    var total: u32 = 0;
+
+    for (res) |r| {
+        passed += r.passed;
+        total += r.total;
+    }
+
+    // if (scope) |s|
+    //     cons.icon_println(results, s, "Passed {d}/{d} tests", .{ passed, total });
+    return .{ .passed = passed, .total = total };
 }
 
 pub fn expect(ok: bool) test_error!void {

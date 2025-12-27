@@ -14,11 +14,34 @@ const qemu_base = .{
 
     // Console Device
     "-serial", "mon:stdio",
-};
+
+    // RNG Device
+    "-device", "virtio-rng-device,rng=rng0",
+    "-object", "rng-random,filename=/dev/urandom,id=rng0",
 
     // Block Device
-    // "-drive", "file=ktfs.raw,id=blk0,if=none,format=raw,readonly=false",
     // "-device", "virtio-blk-device,drive=blk0",
+    // "-drive", "file=ktfs.raw,id=blk0,if=none,format=raw,readonly=false",
+
+    // GPU Device
+    // "-device", "virtio-gpu-device",
+    // "-display", "gtk",
+    // "-monitor", "pty",
+
+    // Input Device
+    // "-device", "virtio-keyboard-device",
+    // "-device", "virtio-tablet-device",
+
+    // Sound Device
+    "-device", "virtio-sound-device,audiodev=audio0",
+    // driver determined later
+
+    // Network Device
+    // "-device", "virtio-net-device,netdev=u1",
+    // "-netdev", "user,id=u1",
+
+};
+
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
@@ -27,7 +50,12 @@ pub fn build(b: *std.Build) void {
     const ram_size = b.option([]const u8, "ram", "Kernel Ram Size (e.g. 8M)") orelse "16M";
     const chroma_scope = b.option(bool, "gay", "Chroma scope coloring") orelse false;
 
-    const qemu_args = qemu_base ++ .{ "-m", ram_size };
+    const qemu_args = qemu_base ++ .{ "-m", ram_size } ++
+        switch (b.graph.host.result.os.tag) {
+            .linux => .{ "-audio", "driver=alsa,model=virtio,id=audio0"},
+            .macos => .{ "-audio", "driver=coreaudio,model=virtio,id=audio0"},
+            else => .{ "-audio", "driver=wav,model=virtio,id=audio0"},
+        };
 
     const target = b.resolveTargetQuery(.{ .cpu_arch = .riscv64, .os_tag = .freestanding, .abi = .none });
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .Debug });

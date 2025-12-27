@@ -23,6 +23,7 @@ pub const Error = error{
     BadFormat,
     Invalid,
     Error,
+    Busy,
 };
 
 pub const iointf = struct {
@@ -68,6 +69,8 @@ pub fn addref(ioptr: *IO) *IO {
 
 pub fn close(self: *IO) void {
     assert(self.refcnt > 0, "IO already closed!");
+    self.lock.acquire();
+    defer self.lock.release();
     self.refcnt -= 1;
     if (self.refcnt == 0)
         if (self.intf.close) |close_fn| close_fn(self);
@@ -75,36 +78,67 @@ pub fn close(self: *IO) void {
 }
 
 pub fn cntl(self: *IO, cmd: i32, arg: ?*anyopaque) Error!isize {
-    return if (self.intf.cntl) |cntl_fn| cntl_fn(self, cmd, arg)
-    else if (cmd == IOCTL_GETBLKSZ) 1 // defalt value
-    else Error.Unsupported;
+    if (self.intf.cntl) | cntl_fn | {
+        self.lock.acquire();
+        defer self.lock.release();
+        return cntl_fn(self, cmd, arg);
+    } else if (cmd == IOCTL_GETBLKSZ) return 1
+    else return Error.Unsupported;
 }
 
 pub fn read(self: *IO, buf: []u8) Error!usize {
-    return if (self.intf.read) |read_fn| read_fn(self, buf)
-    else Error.Unsupported;
+    if (self.intf.read) | read_fn | {
+        self.lock.acquire();
+        defer self.lock.release();
+        return read_fn(self, buf);
+    } else return Error.Unsupported;
 }
 
 pub fn readat(self: *IO, buf: []u8, pos: u64) Error!usize {
-    return if (self.intf.readat) |readat_fn| readat_fn(self, buf, pos)
-    else Error.Unsupported;
+    if (self.intf.readat) | readat_fn | {
+        self.lock.acquire();
+        defer self.lock.release();
+        return readat_fn(self, buf, pos);
+    } else return Error.Unsupported;
 }
 
 pub fn write(self: *IO, buf: []const u8) Error!usize {
-    return if (self.intf.write) |write_fn| write_fn(self, buf)
-    else Error.Unsupported;
+    if (self.intf.write) | write_fn | {
+        self.lock.acquire();
+        defer self.lock.release();
+        return write_fn(self, buf);
+    } else return Error.Unsupported;
 }
 
 pub fn writeat(self: *IO, buf: []const u8, pos: u64) Error!usize {
-    return if (self.intf.writeat) |writeat_fn| writeat_fn(self, buf, pos)
-    else Error.Unsupported;
+    if (self.intf.writeat) | writeat_fn | {
+        self.lock.acquire();
+        defer self.lock.release();
+        return writeat_fn(self, buf, pos);
+    } else return Error.Unsupported;
+}
+
+pub fn fill(self: *IO, buf: []u8) Error!void {
+    var bufpos: usize = 0;
+    while (bufpos < buf.len)
+        bufpos += try self.read(buf[bufpos..]);
+}
+
+pub fn blksz(self: *IO) Error!usize {
+    return self.cntl(IOCTL_GETBLKSZ, null);
+}
+
+pub fn seek(self: *IO, pos: u64) Error!usize {
+    return self.cntl(IOCTL_SETPOS, &pos);
 }
 
 // TODO: support polling
 
 // Mock Devices
 
-pub fn to_seekio(self: *IO) *IO {_ = self; } // TODO
+pub fn to_seekio(self: *IO) *IO {
+    _ = self;
+} // TODO
 
 pub fn create_pipe(wioptr: **IO, rioptr: **IO) void {_ = wioptr; _ = rioptr; } // TODO
 

@@ -106,7 +106,7 @@ var main_thread: Thread = .{
 var idle_thread: Thread = .{
     .name = "idle",
     .id = idle_tid,
-
+    .state = .ready,
     .parent = &main_thread,
 };
 
@@ -121,6 +121,9 @@ pub fn init() void {
     main_thread.anchor.ktp = &main_thread;
     main_thread.lowest = @constCast(&_main_stack_lowest)[0..];
 
+    // register main thread
+    thrtab[main_tid] = &main_thread;
+
     log.debug("idle thread: {*}", .{&idle_thread});
     log.debug("idle thread anchor = {*}", .{&idle_thread.anchor});
     log.debug("idle stack anchor = {*}", .{&_idle_stack_anchor});
@@ -128,7 +131,12 @@ pub fn init() void {
     idle_thread.anchor = @constCast(&_idle_stack_anchor);
     idle_thread.anchor.ktp = &idle_thread;
     idle_thread.lowest = @constCast(&_idle_stack_lowest)[0..];
-    idle_thread.ctx = .new(@ptrCast(&idle_func), @ptrCast(&_thread_startup), @constCast(@ptrCast(&_idle_stack_anchor)));
+
+    // make idle ctx use the anchor pointer we've set above
+    idle_thread.ctx = .new(@ptrCast(&idle_func), @ptrCast(&_thread_startup), idle_thread.anchor);
+
+    // register idle thread
+    thrtab[idle_tid] = &idle_thread;
 
     log.info("entering main thread", .{});
     set_running(&main_thread);
@@ -155,8 +163,9 @@ pub fn yield() void {
         self.reclaim();
 
     // TODO: switch mspace
+    log.debug("Switching to <{s}:{d}>", .{next.name, next.id});
     const old = _thread_swtch(next);
-    log.debug("Switched from <{s}:{d}> to <{s}:{d}>", .{ old.name, old.id, next.name, next.id });
+    log.debug("Switched back to <{s}:{d}>", .{ old.name, old.id });
 
     if (old.state == .exited)
         old.reclaim();
@@ -172,7 +181,7 @@ pub fn spawn(name: []const u8, entry: *anyopaque, ...) callconv(.c) *Thread {
     for (0..8) |i| thr.*.ctx.s[i] = @cVaArg(ap, usize);
     @cVaEnd(ap);
 
-    thr.ctx.ra = _thread_startup();
+    thr.ctx.ra = @ptrCast(_thread_startup);
     thr.ctx.sp = thr.anchor;
 
     thr.state = .ready;
@@ -180,6 +189,8 @@ pub fn spawn(name: []const u8, entry: *anyopaque, ...) callconv(.c) *Thread {
     const pie = intr.disable();
     ready_list.append(thr);
     intr.restore(pie);
+
+    return thr;
 }
 
 fn create(name: []const u8) *Thread {
@@ -244,6 +255,7 @@ export fn thread_exit() noreturn {
 // Frees up a dead thread
 fn reclaim(thr: *Thread) void {
     assert(thr.state == .exited, "kill me first!");
+    log.debug("reclaiming thread <{s}:{d}>", .{thr.name, thr.id});
 
     for (1..idle_tid) |child| {
         if (thrtab[child] != null and thrtab[child].?.parent == thr)
@@ -263,6 +275,7 @@ fn idle_func() void {
             yield();
 
         // Sleep until runnable thread
+        log.debug("sleeping", .{});
         _ = intr.disable();
         if (ready_list.size == 0)
             asm volatile ("wfi");

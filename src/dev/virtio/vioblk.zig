@@ -48,12 +48,7 @@ regs: *volatile virtio.mmio_regs,
 instno: u32,
 irqno: u32,
 
-io: IO = .new0(&.{
-    .ctnl = cntl,
-    .close = close,
-    .readat = readat,
-    .writeat = writeat,
-}),
+io: IO = .from(VIOBLK),
 
 vq: struct {
     last_used_idx: u16 = 0,
@@ -70,17 +65,17 @@ bLock: wait.Lock = .new("vioblk busy"),
 
 blksz: usize = BLKSZ,
 
-pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *std.mem.Allocator) (dev.Error || std.mem.Allocator.Error)!void {
+pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *const std.mem.Allocator) (dev.Error || std.mem.Allocator.Error)!void {
     assert(regs.device_id == .block, "attaching to wrong device!");
 
     regs.status.driver = true;
 
     // Needed Features
-    try regs.add_feature(.ring_reset);
-    try regs.add_feature(.indirect_desc);
+    try regs.add_feature(.base.ring_reset);
+    try regs.add_feature(.base.indirect_desc);
 
     // Wanted Features
-    regs.add_feature(.blk_blk_size) catch void;
+    regs.add_feature(.blk.blk_size) catch void;
 
 
     const self: *VIOBLK = try allocator.create(VIOBLK);
@@ -139,7 +134,7 @@ fn open(aux: *anyopaque) dev.Error!*IO {
     return self.io.addref();
 }
 
-fn close(io: *IO) void {
+pub fn close(io: *IO) void {
     const self: *VIOBLK = @fieldParentPtr("io", io);
 
     self.regs.reset_virtq(0);
@@ -189,20 +184,20 @@ fn interact(io: *IO, request: types, data_addr: u64, len: u32, pos: u64) IO.Erro
     };
 }
 
-fn writeat(io: *IO, buf: []const u8, pos: u64) IO.Error!usize {
+pub fn writeat(io: *IO, buf: []const u8, pos: u64) IO.Error!usize {
     return interact(io, .out, @intFromPtr(buf.ptr), buf.len, pos);
 }
 
-fn readat(io: *IO, buf: []u8, pos: u64) IO.Error!usize {
+pub fn readat(io: *IO, buf: []u8, pos: u64) IO.Error!usize {
     return interact(io, .in, @intFromPtr(buf.ptr), buf.len, pos);
 }
 
-fn cntl(io: *IO, cmd: i32, _: ?*anyopaque) IO.Error!isize {
+pub fn cntl(io: *IO, cmd: i32, _: ?*anyopaque) IO.Error!isize {
     const self: *VIOBLK = @fieldParentPtr("io", io);
 
     return switch (cmd) {
-        IO.IOCTL_GETBLKSZ => self.blksz,
-        IO.IOCTL_GETEND => self.regs.config.blk.capacity * self.blksz,
+        IO.IOCTL_GETBLKSZ => @intCast(self.blksz),
+        IO.IOCTL_GETEND => @intCast(self.regs.config.blk.capacity * self.blksz),
         else => IO.Error.Unsupported
     };
 }

@@ -80,6 +80,6 @@ pub const std_options = std.Options{
     .log_scope_levels = &.{
         .{.scope = .PLIC, .level = .info}, // Don't need debug here anymore
         .{.scope = .PAGE, .level = .info},
-        .{.scope = .WAIT, .level = .info},
+        // .{.scope = .WAIT, .level = .info},
     },
 };

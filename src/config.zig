@@ -20,17 +20,19 @@ pub const VIOGPU_INTR_PRIO: i32 = 2;
 pub const NDEV: u8 = 16;
 
 pub const UART0_MMIO_BASE: usize = 0x1000_0000;
-pub const UART0_INTR_SRCNO: comptime_int = 10;
+pub const UART0_INTR_SRCNO: u32 = 10;
 // Currently, I won't patch QEMU to have more UARTs
 
-pub const VIRTQ0_INTR_SRCNO: comptime_int = 1;
-pub fn VIRTQ_INTR_SRCNO(i: comptime_int) i32 {
-    return VIRTQ0_INTR_SRCNO + i;
+const virtio = @import("dev/virtio/virtio.zig");
+
+pub const VIRTQ0_INTR_SRCNO: u32 = 1;
+pub fn VIRTQ_INTR_SRCNO(i: usize) u32 {
+    return VIRTQ0_INTR_SRCNO + @as(u32, @intCast(i));
 }
 
-pub const VIRTQ0_MMIO_BASE: usize = 0x1000_1000;
-pub fn VIRTQ_MMIO_BASE(i: usize) usize {
-    return VIRTQ0_MMIO_BASE + i * 0x1000;
+pub const VIRTIO0_MMIO_BASE: usize = 0x1000_1000;
+pub fn VIRTIO_MMIO_BASE(i: usize) *volatile virtio.mmio_regs {
+    return @ptrFromInt(VIRTIO0_MMIO_BASE + i * 0x1000);
 }
 
 pub const RTC_MMIO_BASE: usize = 0x00101000;

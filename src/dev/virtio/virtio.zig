@@ -5,11 +5,6 @@ const dev = @import("../device.zig");
 const reg = @import("../../riscv/reg.zig");
 const assert = @import("../../util/debug.zig").assert;
 
-const VIONET = @import("vionet.zig");
-const VIOBLK = @import("vioblk.zig");
-const VIORNG = @import("viorng.zig");
-const VIOSND = @import("viosnd.zig");
-
 // VirtIO Device IDs from Linux (virtio_ids.h). See end of file for that header
 // and license.
 
@@ -18,7 +13,7 @@ const MAGIC_NUMBER = 0x74726976;
 pub const devtype = enum(u32) {
 	none = 0,
 	/// Network Device
-	net = 1,
+	net,
 	/// Block Device
 	block,
 	/// Console Device
@@ -297,27 +292,28 @@ pub const mmio_regs = extern struct {
 		return dev.Error.Unsupported;
 	}
 
-	pub fn negotiate_features(regs: *volatile mmio_regs, needed: *FeatureSet, wanted: *FeatureSet) dev.Error!FeatureSet {
+	pub fn negotiate_features(regs: *volatile mmio_regs, needed: *const FeatureSet, wanted: *const FeatureSet) dev.Error!FeatureSet {
 		var enabled = FeatureSet{};
 		// Verify that needed features are offered
 		for (needed.feats, 0..) |feats, i| {
 			if (feats > 0) {
-				regs.device_features_sel = i;
-				regs.driver_features_sel = i;
+				regs.device_features_sel = @intCast(i);
+				regs.driver_features_sel = @intCast(i);
 				reg.fence();
 				if ((regs.device_features & feats) != feats)
 					return dev.Error.Unsupported;
 				regs.driver_features |= feats;
+				reg.fence();
 			}
 		}
 
 		// All needed are found
-		for (wanted, 0..) |feat, i| {
-			if (wanted > 0) {
-				regs.device_features_sel = i;
-				regs.driver_features_sel = i;
+		for (wanted.feats, 0..) |feats, i| {
+			if (feats > 0) {
+				regs.device_features_sel = @intCast(i);
+				regs.driver_features_sel = @intCast(i);
 				reg.fence();
-				enabled.feats[i] |= regs.device_features & feat;
+				enabled.feats[i] |= regs.device_features & feats;
 				regs.driver_features |= enabled.feats[i];
 				reg.fence();
 			}
@@ -335,131 +331,135 @@ pub const status = packed struct(u32) {
 	driver: bool = false,
 	driver_ok: bool = false,
 	features_ok: bool = false,
-	_reserved: u2 = 0,
+	_reserved0: u2 = 0,
 	device_needs_reset: bool = false,
 	failed: bool = false,
+	_remaining: u24 = 0,
 };
 
-pub const Feature = enum(comptime_int) {
-	indirect_desc = 28,
-	event_idx = 29,
-	any_layout = 27,
-	ring_reset = 40,
-
-	// VIONET FEATURES
-
-	/// Device handles packets with partial checksum.
-	/// This “checksum offload” is a common feature on modern network cards.
-	net_csum = 0,
-	/// Driver handles packets with partial checksum.
-	net_guest_csum = 1,
-	/// Control channel offloads reconfiguration support.
-	net_ctrl_guest_offloads = 2,
-	/// Device maximum MTU reporting is supported. If offered by the device,
-	/// device advises driver about the value of its maximum MTU. If negotiated,
-	/// the driver uses mtu as the maximum MTU value.
-	net_mtu = 3,
-	/// Device has given MAC address.
-	net_mac = 5,
-	/// Driver can receive TSOv4. REQUIRES VIRTIO_NET_F_CSUM
-	net_guest_tso4 = 7,
-	/// Driver can receive TSOv6. REQUIRES VIRTIO_NET_F_CSUM
-	net_guest_tso6 = 8,
-	/// Driver can receive TSO with ECN.
-	/// REQUIRES VIRTIO_NET_F_GUEST_TSO4 or VIRTIO_NET_F_GUEST_TSO6
-	net_guest_ecn = 9,
-	/// Driver can receive UFO. REQUIRES VIRTIO_NET_F_CSUM
-	net_guest_ufo = 10,
-	/// Device can receive TSOv4. REQUIRES VIRTIO_NET_F_CSUM
-	net_host_tso4 = 11,
-	/// Device can receive TSOv6. REQUIRES VIRTIO_NET_F_CSUM
-	net_host_tso6 = 12,
-	/// Device can receive TSO with ECN.
-	/// REQUIRES VIRTIO_NET_F_HOST_TSO4 or VIRTIO_NET_F_HOST_TSO6
-	net_host_ecn = 13,
-	/// Device can receive UFO. REQUIRES VIRTIO_NET_F_CSUM
-	net_host_ufo = 14,
-	/// Driver can merge receive buffers.
-	net_mrg_rxbuf = 15,
-	/// Configuration status field is available.
-	net_status = 16,
-	/// Control channel is available.
-	net_ctrl_vq = 17,
-	/// Control channel RX mode support. REQUIRES VIRTIO_NET_F_CTRL_VQ
-	net_ctrl_rx = 18,
-	/// Control channel VLAN filtering. REQUIRES VIRTIO_NET_F_CTRL_VQ
-	net_ctrl_vlan = 19,
-	/// Driver can send gratuitous packets. REQUIRES VIRTIO_NET_F_CTRL_VQ
-	net_guest_announce = 21,
-	/// Device supports multiqueue with automatic receive steering. REQUIRES VIRTIO_NET_F_CTRL_VQ
-	net_mq = 22,
-	/// Set MAC address through control channel. REQUIRES VIRTIO_NET_F_CTRL_VQ
-	net_ctrl_mac_addr = 23,
-	/// Device can receive USO packets. Unlike UFO (fragmenting the packet) the USO splits large
-	/// UDP packet to several segments when each of these smaller packets has UDP header.
-	net_host_uso = 56,
-	/// Device can report per-packet hash value and a type of calculated hash.
-	net_hash_report = 57,
-	/// Driver can provide the exact hdr_len value. Device benefits from knowing the exact header length.
-	net_guest_hdrlen = 59,
-	/// Device supports RSS (receive-side scaling) with Toeplitz hash calculation
-	/// and configurable hash parameters for receive steering. REQUIRES VIRTIO_NET_F_CTRL_VQ.
-	/// Useful for Multi CPU or High Throughput
-	net_rss = 60,
-	/// Device can process duplicated ACKs and report number of coalesced segments and duplicated ACKs.
-	net_rsc_exit = 61,
-	/// Device may act as a standby for a primary device with the same MAC address.
-	net_standby = 62,
-	/// Device reports speed and duplex.
-	net_speed_duplex = 63,
-
-	// VIOBLK FEATURES
-
-	blk_size_max = 1,
-	blk_seg_max = 2,
-	blk_geometry = 4,
-	blk_ro = 5,
-	blk_blk_size = 6,
-	blk_flush = 9,
-	blk_topology = 10,
-	blk_config_wce = 11,
-	blk_mq = 12,
-	blk_discard = 13,
-	blk_write_zeroes = 14,
+pub const Feature = union(enum(usize)) {
+	base: enum(usize) {
+		/// Device supports indirect descriptors
+		indirect_desc = 28,
+		/// Device supports the event index feature
+		event_idx = 29,
+		/// Device supports any virtqueue layout
+		any_layout = 27,
+		/// Device supports ring reset
+		ring_reset = 40,
+	},
+	net: enum(usize) {
+		/// Device handles packets with partial checksum.
+		/// This “checksum offload” is a common feature on modern network cards.
+		csum = 0,
+		/// Driver handles packets with partial checksum.
+		guest_csum = 1,
+		/// Control channel offloads reconfiguration support.
+		ctrl_guest_offloads = 2,
+		/// Device maximum MTU reporting is supported. If offered by the device,
+		/// device advises driver about the value of its maximum MTU. If negotiated,
+		/// the driver uses mtu as the maximum MTU value.
+		mtu = 3,
+		/// Device has given MAC address.
+		mac = 5,
+		/// Driver can receive TSOv4. REQUIRES VIRTIO_NET_F_CSUM
+		guest_tso4 = 7,
+		/// Driver can receive TSOv6. REQUIRES VIRTIO_NET_F_CSUM
+		guest_tso6 = 8,
+		/// Driver can receive TSO with ECN.
+		/// REQUIRES VIRTIO_NET_F_GUEST_TSO4 or VIRTIO_NET_F_GUEST_TSO6
+		guest_ecn = 9,
+		/// Driver can receive UFO. REQUIRES VIRTIO_NET_F_CSUM
+		guest_ufo = 10,
+		/// Device can receive TSOv4. REQUIRES VIRTIO_NET_F_CSUM
+		host_tso4 = 11,
+		/// Device can receive TSOv6. REQUIRES VIRTIO_NET_F_CSUM
+		host_tso6 = 12,
+		/// Device can receive TSO with ECN.
+		/// REQUIRES VIRTIO_NET_F_HOST_TSO4 or VIRTIO_NET_F_HOST_TSO6
+		host_ecn = 13,
+		/// Device can receive UFO. REQUIRES VIRTIO_NET_F_CSUM
+		host_ufo = 14,
+		/// Driver can merge receive buffers.
+		mrg_rxbuf = 15,
+		/// Configuration status field is available.
+		status = 16,
+		/// Control channel is available.
+		ctrl_vq = 17,
+		/// Control channel RX mode support. REQUIRES VIRTIO_NET_F_CTRL_VQ
+		ctrl_rx = 18,
+		/// Control channel VLAN filtering. REQUIRES VIRTIO_NET_F_CTRL_VQ
+		ctrl_vlan = 19,
+		/// Driver can send gratuitous packets. REQUIRES VIRTIO_NET_F_CTRL_VQ
+		guest_announce = 21,
+		/// Device supports multiqueue with automatic receive steering. REQUIRES VIRTIO_NET_F_CTRL_VQ
+		mq = 22,
+		/// Set MAC address through control channel. REQUIRES VIRTIO_NET_F_CTRL_VQ
+		ctrl_mac_addr = 23,
+		/// Device can receive USO packets. Unlike UFO (fragmenting the packet) the USO splits large
+		/// UDP packet to several segments when each of these smaller packets has UDP header.
+		host_uso = 56,
+		/// Device can report per-packet hash value and a type of calculated hash.
+		hash_report = 57,
+		/// Driver can provide the exact hdr_len value. Device benefits from knowing the exact header length.
+		guest_hdrlen = 59,
+		/// Device supports RSS (receive-side scaling) with Toeplitz hash calculation
+		/// and configurable hash parameters for receive steering. REQUIRES VIRTIO_NET_F_CTRL_VQ.
+		/// Useful for Multi CPU or High Throughput
+		rss = 60,
+		/// Device can process duplicated ACKs and report number of coalesced segments and duplicated ACKs.
+		rsc_exit = 61,
+		/// Device may act as a standby for a primary device with the same MAC address.
+		standby = 62,
+		/// Device reports speed and duplex.
+		speed_duplex = 63,
+	},
+	blk: enum(usize) {
+		/// Block device is read-only.
+		ro = 5,
+		/// Block device supports flush command.
+		flush = 9,
+		/// Block device supports discard command.
+		discard = 13,
+		/// Block device supports write zeroes command.
+		write_zeroes = 14,
+	},
 };
 
 pub const virtq_desc = extern struct {
 	/// guest-physical address
-	addr: u64,
-	len: u32,
-	flags: desc_features,
-	next: i16,
+	addr: u64 = 0,
+	len: u32 = 0,
+	flags: desc_features = .{},
+	next: i16 = 0,
 };
 
 pub const desc_features = packed struct(u16) {
 	next: bool = false,
 	write: bool = false,
 	indirect: bool = false,
+	_remaining: u13 = 0
 };
 
 /// Comptime-resolved variable-size avail virtq
 pub fn virtq_avail(comptime len: comptime_int) type {
 	return extern struct {
-		flags: u16,
-		idx: u16,
-		ring: [len]u16
+		flags: u16 = 0,
+		idx: u16 = 0,
+		ring: [len]u16 = [_]u16{0} ** len
 	};
 }
 
 /// Comptime-resolved variable-size used virtq
 pub fn virtq_used(comptime len: comptime_int) type {
+	const elem = extern struct {
+		id: u32 = 0,
+		len: u32 = 0
+	};
 	return extern struct {
-		flags: u16,
-		idx: u16,
-		ring: [len]extern struct{
-			id: u32,
-			len: u32
-		}
+		flags: u16 = 0,
+		idx: u16 = 0,
+		ring: [len]elem = [_]elem{.{}} ** len
 	};
 }
 
@@ -467,8 +467,14 @@ pub fn virtq_used(comptime len: comptime_int) type {
 // My Stuff
 //
 
-const FeatureSet = struct {
+pub const FeatureSet = struct {
 	feats: [4]u32 = [4]u32{0,0,0,0},
+
+	pub fn init(features: anytype) FeatureSet {
+		var set: FeatureSet = .{};
+		inline for (features) |feat| set.add(feat);
+		return set;
+	}
 
 	pub fn add(set: *FeatureSet, feat: Feature) void {
 		const featnum = @intFromEnum(feat);
@@ -481,9 +487,10 @@ const FeatureSet = struct {
 	}
 };
 
+pub const Error = (dev.Error || std.mem.Allocator.Error);
 
 /// General attach function for all supported VirtIO devices
-pub fn attach(regs: *volatile mmio_regs, irqno: u32, allocator: *std.mem.Allocator) (dev.Error || std.mem.Allocator.Error)!void {
+pub fn attach(regs: *volatile mmio_regs, irqno: u32, allocator: *const std.mem.Allocator) Error!void {
 	if (regs.magic_value != MAGIC_NUMBER) {
 		log.err("Incorrect VirtIO Magic Number", .{});
 		return dev.Error.NotFound;
@@ -495,24 +502,26 @@ pub fn attach(regs: *volatile mmio_regs, irqno: u32, allocator: *std.mem.Allocat
 	}
 
 	if (regs.device_id == .none) {
-		log.warn("Device id for {p} is none. Returning...", .{regs});
+		log.warn("Device id for {*} is none. Returning...", .{regs});
 		return;
 	}
 
-	regs.status = @bitCast(0); // reset
+	regs.status = .{}; // reset
 	regs.status.acknowledge = true;
 
 	log.info("Attempting to attach '{s}'.", .{@tagName(regs.device_id)});
-	return switch (regs.device_id) {
-		.net => @panic("NET unfinished"),
-		.block => VIOBLK.attach(regs, irqno, allocator),
-		.rng => @panic("RNG unfinished"),
-		.sound => @panic("SND unfinished"),
-		.gpu => @panic("GPU unfinished"),
-		.input => @panic("HID unfinished"),
-		.console => @panic("CONS unfinished"),
-		else => dev.Error.Unsupported
+	const result = switch (regs.device_id) {
+		// .net => @panic("NET unfinished"),
+		// .block => @import("vioblk.zig").attach(regs, irqno, allocator),
+		.rng => @import("viorng.zig").attach(regs, irqno, allocator),
+		// .sound => @panic("SND unfinished"),
+		// .gpu => @panic("GPU unfinished"),
+		// .input => @panic("HID unfinished"),
+		// .console => @panic("CONS unfinished"),
+		else => return dev.Error.Unsupported
 	};
+	log.info("Attached '{s}'", .{@tagName(regs.device_id)});
+	return result;
 }
 
 // An interface for efficient virtio implementation.

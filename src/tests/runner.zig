@@ -11,7 +11,7 @@ const test_map = .{
     @import("api/io.zig"),
     @import("mem/page.zig"),
     // @import("mem/vmem.zig"),
-    // @import("dev/virtio.zig"),
+    @import("dev/virtio.zig"),
 };
 
 

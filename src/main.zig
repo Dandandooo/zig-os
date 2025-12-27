@@ -22,7 +22,10 @@ const vmem = @import("mem/vmem.zig");
 // Devices
 const dev = @import("dev/device.zig");
 const rtc = @import("dev/rtc.zig");
+const virtio = @import("dev/virtio/virtio.zig");
 // const fs = @import("file/fs.zig");
+
+const log = std.log.scoped(.MAIN);
 
 
 pub fn main() void {
@@ -43,6 +46,13 @@ pub fn main() void {
     dev.init();
 
     rtc.attach(@ptrFromInt(config.RTC_MMIO_BASE)) catch @panic("no time");
+
+    for (0..8) |i|
+        virtio.attach(
+            config.VIRTIO_MMIO_BASE(i),
+            config.VIRTQ_INTR_SRCNO(i),
+            &heap.allocator
+        ) catch { log.err("Failed to attach VIRTIO {d}", .{i}); };
 
     // fs.print_fs_sizes();
 
