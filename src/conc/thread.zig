@@ -153,7 +153,7 @@ pub fn init() void {
 pub fn yield() void {
     const self = TP();
 
-    var pie = intr.disable();
+    const pie = intr.disable();
     if (self.state == .running) {
         self.state = .ready;
         if (self != &idle_thread)
@@ -165,17 +165,16 @@ pub fn yield() void {
     assert(next.state == .ready, "yielding to unready thread!");
     next.state = .running;
 
-    intr.restore(pie);
-
     // RISC-V ABI: sp must be 16-byte aligned at call boundaries.
     // assert((SP() & 0xF) == 0, "pre-swtch: sp not 16-byte aligned");
 
     // log.debug("ptr: {*}", .{next.name.ptr});
     // TODO: switch mspace
-    // log.debug("Switching to <{s}:{d}>", .{ next.name, next.id });
+    log.debug("Switching to <{s}:{d}>", .{ next.name, next.id });
 
     // TODO: switch memory space for vmem
-    pie = intr.enable();
+    // _thread_swtch must run with interrupts disabled, otherwise an interrupt
+    // can arrive mid-switch and corrupt scheduler/thread state.
     // const old = _thread_swtch(next);
     _ = _thread_swtch(next);
     intr.restore(pie);

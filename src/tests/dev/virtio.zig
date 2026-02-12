@@ -24,20 +24,30 @@ fn shannon_entropy_test() !void {
     log.debug("hi", .{});
     for (buf) |n| counts[n] += 1;
     log.debug("hi", .{});
-    try util.expect(try calculate_entropy(&counts) > 7.99);
+    // Empirical entropy for a 256-byte sample should still be high, but not
+    // near 8.0 due to sample size limits.
+    try util.expect(try calculate_entropy_q10(&counts) > 7000); // > ~6.84 bits
 }
 
-fn calculate_entropy(counts: []const u8) !f64 {
+const log2_q10 = blk: {
+    var table: [257]u16 = [_]u16{0} ** 257;
+    for (1..257) |n| {
+        const x: f64 = @floatFromInt(n);
+        table[n] = @intFromFloat(std.math.log2(x) * 1024.0);
+    }
+    break :blk table;
+};
+
+fn calculate_entropy_q10(counts: []const u8) !u32 {
     try util.expect(counts.len == 256);
 
-    var total: f64 = 0.0;
-    for (counts) |c| total += @floatFromInt(c);
+    var weighted_log_sum_q10: u32 = 0;
+    for (counts) |c| {
+        if (c == 0) continue;
+        weighted_log_sum_q10 += @as(u32, c) * log2_q10[c];
+    }
 
-    var probs: [256]f64 = undefined;
-    for (counts, 0..) |c, i| probs[i] = @as(f64, @floatFromInt(c))/total;
-
-    var entropy: f64 = 0;
-    for (probs) |p| entropy -= p * std.math.log2(p);
-
-    return entropy;
+    // H = 8 - (1/256) * sum(c * log2(c)), scaled by 1024.
+    const eight_q10: u32 = 8 * 1024;
+    return eight_q10 - (weighted_log_sum_q10 / 256);
 }

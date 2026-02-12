@@ -81,7 +81,7 @@ pub fn build(b: *std.Build) void {
     });
     kernel_mod.addOptions("build_options", build_options);
     kernel_mod.fuzz = false;
-    kernel_mod.error_tracing = true;
+    kernel_mod.error_tracing = false;
 
     // Build the kernel with a custom linker script
     const kernel = b.addExecutable(.{
@@ -119,7 +119,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .code_model = .medium,
         .fuzz = false,
-        .error_tracing = true,
+        .error_tracing = false,
         .omit_frame_pointer = false,
         .strip = false,
     });
