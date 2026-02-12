@@ -11,7 +11,7 @@
 
         # When entering a trap, we store all CPU state in a _trap frame_ struct,
         # which is defined as follows in trap.h:
-        # 
+        #
         #   struct trap_frame {
         #       long a0, a1, a2, a3, a4, a5, a6, a7;
         #       long t0, t1, t2, t3, t4, t5, t6;
@@ -28,15 +28,15 @@
 
         # We define a macro for each member's offset within the trap frame and a
         # macro for the trap frame size. Do not confuse `A5`, a constant defined
-        # below, with the _a5_ register.
+        # below, with the _a5_ register.
 
         .equ    A0, 0*8
-        .equ    A1, 1*8 
-        .equ    A2, 2*8 
-        .equ    A3, 3*8 
-        .equ    A4, 4*8 
-        .equ    A5, 5*8 
-        .equ    A6, 6*8 
+        .equ    A1, 1*8
+        .equ    A2, 2*8
+        .equ    A3, 3*8
+        .equ    A4, 4*8
+        .equ    A5, 5*8
+        .equ    A6, 6*8
         .equ    A7, 7*8
         .equ    T0, 8*8
         .equ    T1, 9*8
@@ -44,7 +44,7 @@
         .equ    T3, 11*8
         .equ    T4, 12*8
         .equ    T5, 13*8
-        .equ    T6, 14*8 
+        .equ    T6, 14*8
         .equ    S1, 15*8
         .equ    S2, 16*8
         .equ    S3, 17*8
@@ -68,12 +68,12 @@
 
         # The base of every stack contains a _thread stack anchor_ struct, which
         # is defined in thread.c as:
-        # 
+        #
         #   struct thread_stack_anchor {
         #       struct thread * ktp;
         #       void * kgp;
         #   };
-        # 
+        #
         # This allows us to restore the S-mode _gp_ and _tp_ values.
         #
 
@@ -81,6 +81,7 @@
         .equ    KTP, 0*8
 
 _smode_trap_entry:
+        .cfi_startproc
 
         # Swap _sp_ and _sscratch_. When we're in U mode, sscratch contains a
         # pointer to a trap frame at the base of the kernel stack. When we're in
@@ -90,8 +91,10 @@ _smode_trap_entry:
         beqz    sp, smode_trap_entry_from_smode
 
 smode_trap_entry_from_umode:
-        ld      tp, 0(sp)               # get thread pointer 
-        addi    sp, sp, -TFRSZ          # Allocate trap frame
+        .cfi_def_cfa sp, 0          # CFA is at sp before swap
+        ld      tp, 0(sp)
+        addi    sp, sp, -TFRSZ
+        .cfi_def_cfa sp, TFRSZ      # CFA is now sp + frame size
 
         # Save general purpose registers to trap frame
 
@@ -123,7 +126,21 @@ smode_trap_entry_from_umode:
         sd      s11, S11(sp)
         sd      ra, RA(sp)
         sd      fp, FP(sp)
+        .cfi_offset ra, RA          # ra is at offset RA from CFA
+        .cfi_offset fp, FP
+        .cfi_offset s1, S1
+        .cfi_offset s2, S2
+        .cfi_offset s3, S3
+        .cfi_offset s4, S4
+        .cfi_offset s5, S5
+        .cfi_offset s6, S6
+        .cfi_offset s7, S7
+        .cfi_offset s8, S8
+        .cfi_offset s9, S9
+        .cfi_offset s10, S10
+        .cfi_offset s11, S11
 
+        # Save user stack pointer to trap frame
 
         csrr t6, sscratch   # save user stack to trap frame
         sd t6, SP(sp)
@@ -144,7 +161,7 @@ smode_trap_entry_from_umode:
         # Set up _fp_ to look like a normal stack frame
 
         addi    fp, sp, TFRSZ
-        
+
         # Set up _ra_ to return from exception and interrupt handlers to next
         # instruction after call
 
@@ -154,7 +171,7 @@ smode_trap_entry_from_umode:
         # this address in _ra_ before we jump to an exception or trap handler.
         # Restore all GPRs except _gp_ and _tp_ (not saved/restored in S mode),
         # _sp_ (restored last) and _t6_ (used as temporary).
-        
+
         ld      a0, A0(sp)
         ld      a1, A1(sp)
         ld      a2, A2(sp)
@@ -194,8 +211,8 @@ smode_trap_entry_from_umode:
 
         # Restore _t6_ and _sp_ last
 
-        ld      t6, SP(sp)      # user stack 
-        csrw   sscratch, t6    # put user stack in sscratch 
+        ld      t6, SP(sp)      # user stack
+        csrw   sscratch, t6    # put user stack in sscratch
         ld      t6, T6(sp)
         addi    sp, sp, TFRSZ
 
@@ -205,13 +222,15 @@ smode_trap_entry_from_umode:
 smode_trap_entry_from_umode_cont:
         csrr    a0, scause      # a0 contains "exception code"
         mv      a1, sp          # a1 contains trap frame pointer
-        
-        bgez    a0, handle_umode_exception # in excp.c
-        
-        slli    a0, a0, 1       # clear msb
-        srli    a0, a0, 1       
 
-        j       handle_umode_interrupt # in intr.c 
+        bgez    a0, handle_umode_exception # in excp.c
+
+        slli    a0, a0, 1       # clear msb
+        srli    a0, a0, 1
+
+        j       handle_umode_interrupt # in intr.c
+
+        .cfi_endproc
 
 smode_trap_entry_from_smode:
 
@@ -219,6 +238,8 @@ smode_trap_entry_from_smode:
         # _gp_. First, recover _sp_ from sscratch and write zero to scratch to
         # indicate that we are now in S mode.
 
+        .cfi_startproc
+        .cfi_def_cfa sp, 0
         csrrw   sp, sscratch, zero      # Get kernel SP back from sscratch
         addi    sp, sp, -TFRSZ          # Allocate trap frame
 
@@ -252,6 +273,19 @@ smode_trap_entry_from_smode:
         sd      s11, S11(sp)
         sd      ra, RA(sp)
         sd      fp, FP(sp)
+        .cfi_offset ra, RA
+        .cfi_offset fp, FP
+        .cfi_offset s1, S1
+        .cfi_offset s2, S2
+        .cfi_offset s3, S3
+        .cfi_offset s4, S4
+        .cfi_offset s5, S5
+        .cfi_offset s6, S6
+        .cfi_offset s7, S7
+        .cfi_offset s8, S8
+        .cfi_offset s9, S9
+        .cfi_offset s10, S10
+        .cfi_offset s11, S11
 
         # Capture retired instruction counter and save it in trap frame
 
@@ -268,7 +302,7 @@ smode_trap_entry_from_smode:
         # Set up _fp_ to look like a normal stack frame
 
         addi    fp, sp, TFRSZ
-        
+
         # Set up _ra_ to return from exception and interrupt handlers to next
         # instruction after call
 
@@ -278,7 +312,7 @@ smode_trap_entry_from_smode:
         # this address in _ra_ before we jump to an exception or trap handler.
         # Restore all GPRs except _gp_ and _tp_ (not saved/restored in S mode),
         # _sp_ (restored last) and _t6_ (used as temporary).
-        
+
         ld      a0, A0(sp)
         ld      a1, A1(sp)
         ld      a2, A2(sp)
@@ -323,6 +357,8 @@ smode_trap_entry_from_smode:
 
         sret    # done!
 
+        .cfi_endproc
+
         # Execution of trap entry continues here from `call smode_trap_entry_from_smode_cont` above. Jump to
         # exception handler or interrupt handler depending on what brought us
         # here. Note that we clear the most significant bit of _scause_ before
@@ -330,9 +366,9 @@ smode_trap_entry_from_smode:
 
 smode_trap_entry_from_smode_cont:      csrr    a0, scause      # a0 contains "exception code"
         mv      a1, sp          # a1 contains trap frame pointer
-        
+
         bgez    a0, handle_smode_exception # in excp.c
-        
+
         slli    a0, a0, 1       # clear msb
         srli    a0, a0, 1       #
 
@@ -350,6 +386,7 @@ smode_trap_entry_from_smode_cont:      csrr    a0, scause      # a0 contains "
 # args: a0 is trapframe
 # a1 is pointer to thread stack anchor - sizeof(trap frame)
 trap_frame_jump:
+        .cfi_startproc
 
         # Start by restoring some GPRs now (_early_) and some after disabling
         # interrupts (_late_). See discussion in smode_trap_entry_from_umode.
@@ -403,8 +440,7 @@ trap_frame_jump:
         ld      a0, A0(a0)
 
         returning:
-
-        sret    # Punch it, Chewie!
+        sret
+        .cfi_endproc
 
         .end
-

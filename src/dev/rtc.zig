@@ -60,7 +60,7 @@ pub fn log_time() void {
 }
 
 // NOTE: Does not account for daylight savings time
-const time_zone = enum {
+pub const TimeZone = enum {
 	PST,
 	CST,
 	CDT,
@@ -71,7 +71,7 @@ const time_zone = enum {
 	CET,
 	EET,
 
-	fn offset(self: time_zone) i8 {
+	fn offset(self: TimeZone) i8 {
 		return switch (self) {
 			.PST => -8,
 			.CST => -6,
@@ -86,7 +86,11 @@ const time_zone = enum {
 	}
 };
 
-pub fn log_time_zone(zone: time_zone) void {
+pub fn log_time_zone_str(name: []const u8) void {
+	log_time_zone(std.meta.stringToEnum(TimeZone, name) orelse .UTC);
+}
+
+pub fn log_time_zone(zone: TimeZone) void {
 	const secs: u64 = time() / 1_000_000_000 % (24 * 3600);
 	const mins: u64 = secs / 60;
 	const hours: u64 = @as(u64, @intCast((@as(i64, @intCast(mins / 60 + 24))) + zone.offset())) % 24;
@@ -95,7 +99,7 @@ pub fn log_time_zone(zone: time_zone) void {
 }
 
 pub fn log_all_zones() void {
-	inline for (comptime std.enums.values(time_zone)) |zone| {
+	inline for (comptime std.enums.values(TimeZone)) |zone| {
 		log_time_zone(zone);
 	}
 }

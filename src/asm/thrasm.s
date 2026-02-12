@@ -17,6 +17,7 @@
         .type   _thread_swtch, @function
 
 _thread_swtch:
+        .cfi_startproc
 
         # We only need to save the ra and s0 - s12 registers. Save them on
         # the stack and then save the stack pointer. Our declaration is:
@@ -75,6 +76,7 @@ _thread_swtch:
         ld      s0, 0*8(tp)
 
         ret
+        .cfi_endproc
 
         .global _thread_startup
         .type   _thread_startup, @function
@@ -87,6 +89,9 @@ _thread_swtch:
 #               `thread_exit` when done
 # Side effects: Modifies execution flow by calling `entry` and `thread_exit`
 _thread_startup:
+        .cfi_startproc
+        .cfi_undefined ra
+
         # Move args from struct into a0-7
         ld      a0,     0*8(tp);
         ld      a1,     1*8(tp);
@@ -103,6 +108,7 @@ _thread_startup:
         jalr    t0;                     # call entry
 
         call    thread_exit;
+        .cfi_endproc
 
 # Statically allocated stack for the idle thread.
 

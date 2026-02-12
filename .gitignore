@@ -4,3 +4,4 @@ flake.lock
 qemu.log
 .vscode/
 *.code-workspace
+.DS_Store

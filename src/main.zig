@@ -58,8 +58,7 @@ pub fn main() void {
 
     // vmem.init(); // FIXME
 
-
-    rtc.log_time_zone(.EST);
+    rtc.log_time_zone_str(build_options.time_zone);
 
     if (build_options.test_mode)
         return @import("tests/runner.zig").run();

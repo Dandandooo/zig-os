@@ -30,7 +30,7 @@ export var multiboot: MultibootHeader align(4) linksection(".multiboot") = .{
 /// Shutdown is only successful upon completion of main().
 export fn _start() callconv(.{ .riscv64_lp64 = .{} }) noreturn {
     main();
-    shutdown(true);
+    exit(true);
 }
 
 pub const panic = std.debug.FullPanic(panicFn);
@@ -46,12 +46,20 @@ pub fn panicFn(message: []const u8, first_trace: ?usize) noreturn {
     } else {
         std.log.scoped(.CAUSE).err("NO STACK TRACE", .{});
     }
-    shutdown(false);
+    crash();
+}
+
+pub fn crash() noreturn {
+    exit(false);
+}
+
+pub fn shutdown() noreturn {
+    exit(true);
 }
 
 /// Interfaces with QEMU to execute kernel shutdown.
 /// Magic numbers provided by UIUC's ECE 391 (idk where they got them).
-pub fn shutdown(comptime success: bool) noreturn {
+fn exit(comptime success: bool) noreturn {
     @branchHint(.cold);
 
     console.icon_println("💀", "KILLED", "{s}\x1b[0m", .{if (success) "\x1b[32msuccess" else "\x1b[31mfailure"});

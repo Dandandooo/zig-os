@@ -32,7 +32,7 @@ const plic_regs: type = extern struct {
     ctx: [PLIC_CTX_CNT] extern struct {
         threshold: u32 align(0x1000),
         claim: u32
-    } align(0x20000),
+    } align(0x200000),
 };
 
 // Globals

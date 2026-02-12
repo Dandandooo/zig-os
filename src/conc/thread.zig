@@ -35,6 +35,12 @@ pub fn TP() *Thread {
     );
 }
 
+inline fn SP() usize {
+    return asm ("mv %[ret], sp"
+        : [ret] "=r" (-> usize),
+    );
+}
+
 inline fn set_running(thr: *Thread) void {
     asm volatile ("mv tp, %[thr]"
         :
@@ -45,7 +51,7 @@ inline fn set_running(thr: *Thread) void {
 
 // Types
 
-pub const context = struct {
+pub const context = extern struct {
     s: [12]u64 = [_]u64{0} ** 12,
     ra: *const anyopaque = undefined,
     sp: *anyopaque = undefined,
@@ -108,6 +114,7 @@ var idle_thread: Thread = .{
     .id = idle_tid,
     .state = .ready,
     .parent = &main_thread,
+    .child_exit = .{ .name = "idle child exit" },
 };
 
 pub var initialized = false;
@@ -146,8 +153,7 @@ pub fn init() void {
 pub fn yield() void {
     const self = TP();
 
-    const pie = intr.disable();
-    defer intr.restore(pie);
+    var pie = intr.disable();
     if (self.state == .running) {
         self.state = .ready;
         if (self != &idle_thread)
@@ -159,22 +165,34 @@ pub fn yield() void {
     assert(next.state == .ready, "yielding to unready thread!");
     next.state = .running;
 
-    if (self.state == .exited)
-        self.reclaim();
+    intr.restore(pie);
 
+    // RISC-V ABI: sp must be 16-byte aligned at call boundaries.
+    // assert((SP() & 0xF) == 0, "pre-swtch: sp not 16-byte aligned");
+
+    // log.debug("ptr: {*}", .{next.name.ptr});
     // TODO: switch mspace
-    log.debug("Switching to <{s}:{d}>", .{next.name, next.id});
-    const old = _thread_swtch(next);
-    log.debug("Switched back to <{s}:{d}>", .{ old.name, old.id });
+    // log.debug("Switching to <{s}:{d}>", .{ next.name, next.id });
 
-    if (old.state == .exited)
-        old.reclaim();
+    // TODO: switch memory space for vmem
+    pie = intr.enable();
+    // const old = _thread_swtch(next);
+    _ = _thread_swtch(next);
+    intr.restore(pie);
+
+    assert((SP() & 0xF) == 0, "post-swtch: sp not 16-byte aligned");
+    // log.debug("hi: {*}", .{self.name.ptr});
+
+    log.debug("Switched back to <{s}:{d}>", .{ self.name, self.id });
+
+    // if (old.state == .exited)
+    //     old.reclaim();
 }
 
 // Thread Creation
 
-pub fn spawn(name: []const u8, entry: *anyopaque, ...) callconv(.c) *Thread {
-    const thr = create(name);
+pub fn spawn(name: [*:0]const u8, entry: *anyopaque, ...) callconv(.c) *Thread {
+    const thr = create(std.mem.span(name));
     thr.ctx.s[8] = @intFromPtr(entry);
 
     const ap = @cVaStart();
@@ -202,13 +220,19 @@ fn create(name: []const u8) *Thread {
     const thr: *Thread = heap.allocator.create(Thread);
 
     const stack_page: []align(page.SIZE) u8 = page.phys_alloc(1);
+    const top: usize = @intFromPtr(stack_page.ptr) + page.SIZE;
+    const anchor_addr: usize = std.mem.alignBackward(
+        usize,
+        top - @sizeOf(stack_anchor),
+        @alignOf(stack_anchor)
+    );
 
     thr.* = .{
         .id = tid,
         .name = name,
         .parent = TP(),
 
-        .anchor = @ptrCast(stack_page + page.SIZE - 1),
+        .anchor = @ptrFromInt(anchor_addr),
         .lowest = stack_page,
     };
 
@@ -232,7 +256,7 @@ pub fn join(child: *Thread) void {
 pub fn exit() noreturn {
     const self = TP();
     assert(self.state == .running, "you must be running to exit");
-    if (self == &main_thread) kernel.shutdown(true);
+    if (self == &main_thread) kernel.shutdown();
     // assert(self.state != .exited, "double kill!");
     self.state = .exited;
 
@@ -255,6 +279,7 @@ export fn thread_exit() noreturn {
 // Frees up a dead thread
 fn reclaim(thr: *Thread) void {
     assert(thr.state == .exited, "kill me first!");
+    assert(thr != TP(), "cannot reclaim currently-running thread (stack use-after-free)!");
     log.debug("reclaiming thread <{s}:{d}>", .{thr.name, thr.id});
 
     for (1..idle_tid) |child| {

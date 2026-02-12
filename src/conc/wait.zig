@@ -22,6 +22,8 @@ pub const Condition = struct {
 
         self.wait_cond = cond;
 
+        cond.threads.append(self);
+
         intr.restore(pie);
         Thread.yield();
     }

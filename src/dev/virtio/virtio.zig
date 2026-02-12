@@ -510,18 +510,26 @@ pub fn attach(regs: *volatile mmio_regs, irqno: u32, allocator: *const std.mem.A
 	regs.status.acknowledge = true;
 
 	log.info("Attempting to attach '{s}'.", .{@tagName(regs.device_id)});
-	const result = switch (regs.device_id) {
+	const attach_fn: @TypeOf(attach) = switch (regs.device_id) {
 		// .net => @panic("NET unfinished"),
 		// .block => @import("vioblk.zig").attach(regs, irqno, allocator),
-		.rng => @import("viorng.zig").attach(regs, irqno, allocator),
+		.rng => @import("viorng.zig").attach,
 		// .sound => @panic("SND unfinished"),
 		// .gpu => @panic("GPU unfinished"),
 		// .input => @panic("HID unfinished"),
 		// .console => @panic("CONS unfinished"),
 		else => return dev.Error.Unsupported
 	};
+
+	regs.status.driver = true;
+	reg.fence();
+
+	try attach_fn(regs, irqno, allocator);
+
+	regs.status.driver_ok = true;
+	reg.fence();
+
 	log.info("Attached '{s}'", .{@tagName(regs.device_id)});
-	return result;
 }
 
 // An interface for efficient virtio implementation.

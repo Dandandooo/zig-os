@@ -13,7 +13,7 @@ const virtio = @import("virtio.zig");
 const IO = @import("../../api/io.zig");
 const VIORNG = @This();
 
-const BUFSZ: u32 = 256;
+const BUFSZ: u32 = 1024;
 const NAME: []const u8 = "rng";
 const IRQ_PRIO: u32 = 1;
 
@@ -26,10 +26,7 @@ io: IO = .from(VIORNG),
 vq: struct {
     avail: virtio.virtq_avail(1) = .{},
     used: virtio.virtq_used(1) = .{},
-    desc: virtio.virtq_desc = .{
-        .flags = .{ .write = true },
-        .len = BUFSZ
-    }
+    desc: [1]virtio.virtq_desc = undefined,
 },
 
 bufpos: usize = BUFSZ,
@@ -41,17 +38,10 @@ filled: wait.Condition = .{ .name = "viorng filled" },
 pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *const std.mem.Allocator) virtio.Error!void {
     assert(regs.device_id == .rng, "should be attaching rng");
 
-    regs.status.driver = true;
-
-    reg.fence();
-
     const needed_features: virtio.FeatureSet = .{};
     const wanted_features: virtio.FeatureSet = .{};
     const enabled_features = try regs.negotiate_features(&needed_features, &wanted_features);
     _ = enabled_features;
-
-
-
 
     const self: *VIORNG = try allocator.create(VIORNG);
     self.* = .{
@@ -60,10 +50,17 @@ pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *const st
         .instno = try dev.register(NAME, open, self),
         .vq = .{
             .desc = .{
-                .addr = @intFromPtr(&self.buf),
+                .{
+                    .flags = .{ .write = true },
+                    .len = BUFSZ,
+                    .addr = @intFromPtr(&self.buf),
+                }
             },
         },
     };
+
+    regs.attach_virtq(0, 1, &self.vq.desc[0],
+        @intFromPtr(&self.vq.used), @intFromPtr(&self.vq.avail));
 }
 
 fn open(aux: *anyopaque) IO.Error!*IO {
@@ -88,6 +85,7 @@ pub fn read(io: *IO, buf: []u8) !usize {
     const self: *VIORNG = @fieldParentPtr("io", io);
 
     if (self.bufpos >= BUFSZ) {
+        log.debug("Refilling virtio buffer", .{});
         self.vq.avail.idx += 1;
         self.vq.avail.ring[0] = 0;
 
@@ -98,9 +96,11 @@ pub fn read(io: *IO, buf: []u8) !usize {
         intr.restore(pie);
     }
 
-    @memcpy(buf, self.buf[self.bufpos..self.bufpos+buf.len]);
-    defer self.bufpos += buf.len;
-    return @min(buf.len, BUFSZ - self.bufpos);
+    const available = BUFSZ - self.bufpos;
+    const to_copy = @min(buf.len, available);
+    @memcpy(buf[0..to_copy], self.buf[self.bufpos..self.bufpos+to_copy]);
+    defer self.bufpos += to_copy;
+    return to_copy;
 }
 
 fn isr(aux: *anyopaque) void {

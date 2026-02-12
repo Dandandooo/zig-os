@@ -30,7 +30,7 @@ export fn handle_smode_exception(cause: u32, tfr: *const trap.frame) void {
         .INSTR_ACCESS_FAULT => log.err("\x1b[31;1m{s}\x1b[0m at 0x{X} for 0x{X} in S mode", .{@tagName(scause), @intFromPtr(tfr.sepc), reg.csrr("stval")}),
         else => log.err("\x1b[31;1m{s}\x1b[0m at 0x{X} in S mode", .{@tagName(scause), @intFromPtr(tfr.sepc)})
     }
-    kernel.shutdown(false);
+    kernel.crash();
 }
 
 export fn handle_umode_exception(cause: u32, tfr: *const trap.frame) void {
