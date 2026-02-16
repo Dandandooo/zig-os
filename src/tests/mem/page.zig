@@ -3,13 +3,13 @@ const page = @import("../../mem/page.zig");
 
 
 pub fn run() util.test_results {
-    return util.run_tests("PAGE", .{
-        .{"Allocate all pages", allocateAll},
-        .{"Page coalescing", coalescing}
+    return util.run_tests("PAGE", &.{
+        .{.name = "Allocate all pages", .func = allocateAll},
+        .{.name = "Page coalescing", .func = coalescing}
     });
 }
 
-fn allocateAll() !void {
+fn allocateAll() anyerror!void {
     const orig = page.free_page_cnt();
     try util.expect(page.free_chunk_cnt() == 1);
 
@@ -24,7 +24,7 @@ fn allocateAll() !void {
     try util.expect(page.free_chunk_cnt() == 1);
 }
 
-fn coalescing() !void {
+fn coalescing() anyerror!void {
     const orig = page.free_page_cnt();
     const num = 100;
     var pps: [num]page.ty = undefined;

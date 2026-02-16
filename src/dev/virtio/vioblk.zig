@@ -34,9 +34,9 @@ const Status = enum(u8) {
 };
 
 const Header = extern struct {
-    req_type: types,
-    reserved: u32,
-    sector: u64,
+    req_type: types = .in,
+    reserved: u32 = undefined,
+    sector: u64 = 0,
 };
 
 const DESC_MAIN: comptime_int = 0;
@@ -56,8 +56,8 @@ vq: struct {
     used: virtio.virtq_used(1) = .{},
     desc: [4]virtio.virtq_desc,
 
-    head: Header,
-    stat: Status,
+    head: Header = .{},
+    stat: Status = .Unfinished,
 },
 
 bCond: wait.Condition = .{ .name = "vioblk wait" },
@@ -70,13 +70,14 @@ pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *const st
 
     regs.status.driver = true;
 
-    // Needed Features
-    try regs.add_feature(.base.ring_reset);
-    try regs.add_feature(.base.indirect_desc);
+    var needed_features: virtio.FeatureSet = .{};
+    var wanted_features: virtio.FeatureSet = .{};
 
-    // Wanted Features
-    regs.add_feature(.blk.blk_size) catch void;
+    needed_features.add(virtio.F.RING_RESET);
+    needed_features.add(virtio.F.INDIRECT_DESC);
+    wanted_features.add(virtio.F.BLK_BLK_SIZE);
 
+    const enabled_features = try regs.negotiate_features(&needed_features, &wanted_features);
 
     const self: *VIOBLK = try allocator.create(VIOBLK);
     self.* = .{
@@ -86,7 +87,7 @@ pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *const st
         .vq = .{
             .desc = .{
                 .{
-                    .flags = .{ .indirect_desc = true },
+                    .flags = .{ .indirect= true },
                     .addr = @intFromPtr(&self.vq.desc[DESC_HEAD]),
                     .len = @sizeOf(virtio.virtq_desc) * DESC_STAT
                 },
@@ -110,7 +111,7 @@ pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *const st
             }
         },
 
-        .blksz = if (regs.check_feature(.blk_blk_size)) regs.config.blk.blk_size else BLKSZ,
+        .blksz = if (enabled_features.has(virtio.F.BLK_BLK_SIZE)) regs.config.blk.blk_size else BLKSZ,
     };
 
     assert((self.blksz & (self.blksz - 1)) == 0, "Block Size must be a power of 2");
@@ -119,14 +120,14 @@ pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *const st
     .{"Device ID: {s}", "IRQNO: {d}", "INSTNO: {d}", "BLKSZ: {d}"},
     .{@tagName(regs.device_id), self.irqno, self.instno, self.blksz});
 
-    regs.attach_virtq(0, 1, &self.vq.desc, @intFromPtr(&self.vq.used), @intFromPtr(&self.vq.avail));
+    regs.attach_virtq(0, 1, &self.vq.desc[0], @intFromPtr(&self.vq.used), @intFromPtr(&self.vq.avail));
 }
 
-fn open(aux: *anyopaque) dev.Error!*IO {
-    const self: *VIOBLK = @ptrCast(aux);
+fn open(aux: *anyopaque) IO.Error!*IO {
+    const self: *VIOBLK = @alignCast(@ptrCast(aux));
 
     if (self.io.refcnt > 0)
-        return dev.Error.Busy;
+        return IO.Error.Busy;
 
     self.regs.enable_virtq(0);
     intr.enable_source(self.irqno, INTR_PRIO, isr, aux);
@@ -148,7 +149,7 @@ fn interact(io: *IO, request: types, data_addr: u64, len: u32, pos: u64) IO.Erro
     defer self.bLock.release();
 
     if (len % self.blksz != 0) {
-        log.err("write length must be multiple of block size");
+        log.err("write length must be multiple of block size", .{});
         return IO.Error.Invalid;
     }
 
@@ -185,11 +186,11 @@ fn interact(io: *IO, request: types, data_addr: u64, len: u32, pos: u64) IO.Erro
 }
 
 pub fn writeat(io: *IO, buf: []const u8, pos: u64) IO.Error!usize {
-    return interact(io, .out, @intFromPtr(buf.ptr), buf.len, pos);
+    return interact(io, .out, @intFromPtr(buf.ptr), @intCast(buf.len), pos);
 }
 
 pub fn readat(io: *IO, buf: []u8, pos: u64) IO.Error!usize {
-    return interact(io, .in, @intFromPtr(buf.ptr), buf.len, pos);
+    return interact(io, .in, @intFromPtr(buf.ptr), @intCast(buf.len), pos);
 }
 
 pub fn cntl(io: *IO, cmd: i32, _: ?*anyopaque) IO.Error!isize {
@@ -204,7 +205,7 @@ pub fn cntl(io: *IO, cmd: i32, _: ?*anyopaque) IO.Error!isize {
 
 fn isr(aux: *anyopaque) void {
     log.debug("ISR FIRED", .{});
-    const self: *VIOBLK = @ptrCast(aux);
+    const self: *VIOBLK = @alignCast(@ptrCast(aux));
 
     // self.vq.last_used_idx = self.vq.used.idx;
     self.regs.interrupt_ack = 1;

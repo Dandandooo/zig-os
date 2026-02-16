@@ -190,15 +190,15 @@ pub fn yield() void {
 
 // Thread Creation
 
-pub fn spawn(name: [*:0]const u8, entry: *anyopaque, ...) callconv(.c) *Thread {
-    const thr = create(std.mem.span(name));
+pub fn spawn(name: [*:0]const u8, entry: *anyopaque, ...) callconv(.c) ?*Thread {
+    const thr = create(std.mem.span(name)) catch return null;
     thr.ctx.s[8] = @intFromPtr(entry);
 
-    const ap = @cVaStart();
-    for (0..8) |i| thr.*.ctx.s[i] = @cVaArg(ap, usize);
-    @cVaEnd(ap);
+    var ap = @cVaStart();
+    for (0..8) |i| thr.*.ctx.s[i] = @cVaArg(&ap, usize);
+    @cVaEnd(&ap);
 
-    thr.ctx.ra = @ptrCast(_thread_startup);
+    thr.ctx.ra = @ptrCast(&_thread_startup);
     thr.ctx.sp = thr.anchor;
 
     thr.state = .ready;
@@ -210,13 +210,13 @@ pub fn spawn(name: [*:0]const u8, entry: *anyopaque, ...) callconv(.c) *Thread {
     return thr;
 }
 
-fn create(name: []const u8) *Thread {
+fn create(name: []const u8) !*Thread {
     log.debug("Creating thread {s}", .{name});
     const tid: usize = for (1..idle_tid) |i| {
         if (thrtab[i] == null) break i;
     } else @panic("out of thread spots");
 
-    const thr: *Thread = heap.allocator.create(Thread);
+    const thr: *Thread = try heap.allocator.create(Thread);
 
     const stack_page: []align(page.SIZE) u8 = page.phys_alloc(1);
     const top: usize = @intFromPtr(stack_page.ptr) + page.SIZE;
@@ -244,6 +244,8 @@ fn create(name: []const u8) *Thread {
 pub fn join(child: *Thread) void {
     assert(child != TP(), "can't join yourself!");
     assert(child.parent == TP(), "can't join someone else's child!");
+    const self = TP();
+    log.debug("<{s}:{d}> joining <{s}:{d}>", .{self.name, self.id, child.name, child.id});
 
     const pie = intr.disable();
     defer intr.restore(pie);
@@ -262,8 +264,8 @@ pub fn exit() noreturn {
     while (self.locks.head) |lock| : (_ = self.*.locks.pop(self.*.locks.head))
         lock.release();
 
-    if (self.parent) |parent|
-        parent.child_exit.broadcast();
+    // if (self.parent) |parent|
+    self.child_exit.broadcast();
 
     Thread.yield();
 

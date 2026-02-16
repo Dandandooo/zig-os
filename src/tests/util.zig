@@ -19,40 +19,40 @@ pub const test_error = error {
     Incorrect,
 };
 
-pub const test_function = fn () test_error!void;
+pub const test_function = fn () anyerror!void;
 
 pub const test_pair = struct {
     name: []const u8,
-    func: test_function
+    func: test_function,
+    cons: bool = false,
 };
 
 const pad = "=" ** 15;
 
-pub fn run_tests(comptime scope: []const u8, comptime tests: anytype) test_results {
+pub fn run_tests(comptime scope: []const u8, comptime tests: []const test_pair) test_results {
     var total: u32 = 0;
     var failed: u32 = 0;
 
     cons.print("\x1b[90m" ++ pad ++ "{s:=^8}" ++ pad ++ "\x1b[0m\n", .{" " ++ scope ++ " "});
 
     inline for (tests) |t| {
-        const name = t[0];
-        const tfunc = t[1];
         var terror: ?anyerror = null;
 
-        cons.icon_print(running, scope, "{s}", .{name});
+        cons.icon_print(running, scope, "{s}", .{t.name});
 
-        // cons.disable();
+        if (!t.cons)
+            cons.disable();
 
         total += 1;
-        tfunc() catch |err| {
+        t.func() catch |err| {
             terror = err;
             failed += 1;
         };
 
-        // cons.enable();
+        cons.enable();
 
-        if (terror) |err| cons.icon_println(reset ++ fail, scope, "\x1b[31m{s}\x1b[0m: {s}", .{name, @errorName(err)})
-        else cons.icon_println(reset ++ pass, scope, "\x1b[32m{s}\x1b[0m", .{name});
+        if (terror) |err| cons.icon_println(reset ++ fail, scope, "\x1b[31m{s}\x1b[0m: {s}", .{t.name, @errorName(err)})
+        else cons.icon_println(reset ++ pass, scope, "\x1b[32m{s}\x1b[0m", .{t.name});
     }
 
     // cons.icon_println(results, scope, "Passed {d}/{d} tests", .{ total - failed, total });

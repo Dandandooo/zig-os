@@ -270,25 +270,23 @@ pub const mmio_regs = extern struct {
 		reg.fence();
 	}
 
-	pub fn check_feature(regs: *volatile mmio_regs, feat: Feature) bool {
-		const feat_int = @intFromEnum(feat);
-		regs.device_features_sel = feat_int / 32;
+	pub fn check_feature(regs: *volatile mmio_regs, feat: comptime_int) bool {
+		regs.device_features_sel = feat / 32;
 		reg.fence();
-		return (regs.device_features & (1 << (feat_int & 31))) > 0;
+		return (regs.device_features & (1 << (feat & 31))) > 0;
 	}
 
-	pub fn add_feature(regs: *volatile mmio_regs, feat: Feature) dev.Error!void {
-		const featint = @intFromEnum(feat);
-		regs.device_features_sel = featint / 32;
+	pub fn add_feature(regs: *volatile mmio_regs, feat: comptime_int) dev.Error!void {
+		regs.device_features_sel = feat / 32;
 		reg.fence();
-		if (regs.device_features & featint) {
-			regs.driver_features_sel = featint / 32;
+		if (regs.device_features & feat != 0) {
+			regs.driver_features_sel = feat / 32;
 			reg.fence();
-			regs.driver_features |= featint & 31;
+			regs.driver_features |= feat & 31;
 			reg.fence();
 			return;
 		}
-		log.warn("Failed to negotiate {s}", .{@tagName(feat)});
+		log.warn("Failed to negotiate feature {d}", .{feat});
 		return dev.Error.Unsupported;
 	}
 
@@ -337,93 +335,112 @@ pub const status = packed struct(u32) {
 	_remaining: u24 = 0,
 };
 
-pub const Feature = union(enum(usize)) {
-	base: enum(usize) {
-		/// Device supports indirect descriptors
-		indirect_desc = 28,
-		/// Device supports the event index feature
-		event_idx = 29,
-		/// Device supports any virtqueue layout
-		any_layout = 27,
-		/// Device supports ring reset
-		ring_reset = 40,
-	},
-	net: enum(usize) {
-		/// Device handles packets with partial checksum.
-		/// This “checksum offload” is a common feature on modern network cards.
-		csum = 0,
-		/// Driver handles packets with partial checksum.
-		guest_csum = 1,
-		/// Control channel offloads reconfiguration support.
-		ctrl_guest_offloads = 2,
-		/// Device maximum MTU reporting is supported. If offered by the device,
-		/// device advises driver about the value of its maximum MTU. If negotiated,
-		/// the driver uses mtu as the maximum MTU value.
-		mtu = 3,
-		/// Device has given MAC address.
-		mac = 5,
-		/// Driver can receive TSOv4. REQUIRES VIRTIO_NET_F_CSUM
-		guest_tso4 = 7,
-		/// Driver can receive TSOv6. REQUIRES VIRTIO_NET_F_CSUM
-		guest_tso6 = 8,
-		/// Driver can receive TSO with ECN.
-		/// REQUIRES VIRTIO_NET_F_GUEST_TSO4 or VIRTIO_NET_F_GUEST_TSO6
-		guest_ecn = 9,
-		/// Driver can receive UFO. REQUIRES VIRTIO_NET_F_CSUM
-		guest_ufo = 10,
-		/// Device can receive TSOv4. REQUIRES VIRTIO_NET_F_CSUM
-		host_tso4 = 11,
-		/// Device can receive TSOv6. REQUIRES VIRTIO_NET_F_CSUM
-		host_tso6 = 12,
-		/// Device can receive TSO with ECN.
-		/// REQUIRES VIRTIO_NET_F_HOST_TSO4 or VIRTIO_NET_F_HOST_TSO6
-		host_ecn = 13,
-		/// Device can receive UFO. REQUIRES VIRTIO_NET_F_CSUM
-		host_ufo = 14,
-		/// Driver can merge receive buffers.
-		mrg_rxbuf = 15,
-		/// Configuration status field is available.
-		status = 16,
-		/// Control channel is available.
-		ctrl_vq = 17,
-		/// Control channel RX mode support. REQUIRES VIRTIO_NET_F_CTRL_VQ
-		ctrl_rx = 18,
-		/// Control channel VLAN filtering. REQUIRES VIRTIO_NET_F_CTRL_VQ
-		ctrl_vlan = 19,
-		/// Driver can send gratuitous packets. REQUIRES VIRTIO_NET_F_CTRL_VQ
-		guest_announce = 21,
-		/// Device supports multiqueue with automatic receive steering. REQUIRES VIRTIO_NET_F_CTRL_VQ
-		mq = 22,
-		/// Set MAC address through control channel. REQUIRES VIRTIO_NET_F_CTRL_VQ
-		ctrl_mac_addr = 23,
-		/// Device can receive USO packets. Unlike UFO (fragmenting the packet) the USO splits large
-		/// UDP packet to several segments when each of these smaller packets has UDP header.
-		host_uso = 56,
-		/// Device can report per-packet hash value and a type of calculated hash.
-		hash_report = 57,
-		/// Driver can provide the exact hdr_len value. Device benefits from knowing the exact header length.
-		guest_hdrlen = 59,
-		/// Device supports RSS (receive-side scaling) with Toeplitz hash calculation
-		/// and configurable hash parameters for receive steering. REQUIRES VIRTIO_NET_F_CTRL_VQ.
-		/// Useful for Multi CPU or High Throughput
-		rss = 60,
-		/// Device can process duplicated ACKs and report number of coalesced segments and duplicated ACKs.
-		rsc_exit = 61,
-		/// Device may act as a standby for a primary device with the same MAC address.
-		standby = 62,
-		/// Device reports speed and duplex.
-		speed_duplex = 63,
-	},
-	blk: enum(usize) {
-		/// Block device is read-only.
-		ro = 5,
-		/// Block device supports flush command.
-		flush = 9,
-		/// Block device supports discard command.
-		discard = 13,
-		/// Block device supports write zeroes command.
-		write_zeroes = 14,
-	},
+pub const F = struct {
+
+	/// Device supports indirect descriptors
+	pub const INDIRECT_DESC = 28;
+	/// Device supports the event index feature
+	pub const EVENT_IDX = 29;
+	/// Device supports any virtqueue layout
+	pub const ANY_LAYOUT = 27;
+	/// Device supports ring reset
+	pub const RING_RESET = 40;
+
+	/// Device handles packets with partial checksum.
+	/// This “checksum offload” is a common feature on modern network cards.
+	pub const NET_CSUM = 0;
+	/// Driver handles packets with partial checksum.
+	pub const NET_GUEST_CSUM = 1;
+	/// Control channel offloads reconfiguration support.
+	pub const NET_CTRL_GUEST_OFFLOADS = 2;
+	/// Device maximum MTU reporting is supported. If offered by the device,
+	/// device advises driver about the value of its maximum MTU. If negotiated,
+	/// the driver uses mtu as the maximum MTU value.
+	pub const NET_MTU = 3;
+	/// Device has given MAC address.
+	pub const NET_MAC = 5;
+	/// Driver can receive TSOv4. REQUIRES VIRTIO_NET_F_CSUM
+	pub const NET_GUEST_TSO4 = 7;
+	/// Driver can receive TSOv6. REQUIRES VIRTIO_NET_F_CSUM
+	pub const NET_GUEST_TSO6 = 8;
+	/// Driver can receive TSO with ECN.
+	/// REQUIRES VIRTIO_NET_F_GUEST_TSO4 or VIRTIO_NET_F_GUEST_TSO6
+	pub const NET_GUEST_ECN = 9;
+	/// Driver can receive UFO. REQUIRES VIRTIO_NET_F_CSUM
+	pub const NET_GUEST_UFO = 10;
+	/// Device can receive TSOv4. REQUIRES VIRTIO_NET_F_CSUM
+	pub const NET_HOST_TSO4 = 11;
+	/// Device can receive TSOv6. REQUIRES VIRTIO_NET_F_CSUM
+	pub const NET_HOST_TSO6 = 12;
+	/// Device can receive TSO with ECN.
+	/// REQUIRES VIRTIO_NET_F_HOST_TSO4 or VIRTIO_NET_F_HOST_TSO6
+	pub const NET_HOST_ECN = 13;
+	/// Device can receive UFO. REQUIRES VIRTIO_NET_F_CSUM
+	pub const NET_HOST_UFO = 14;
+	/// Driver can merge receive buffers.
+	pub const NET_MRG_RXBUF = 15;
+	/// Configuration status field is available.
+	pub const NET_STATUS = 16;
+	/// Control channel is available.
+	pub const NET_CTRL_VQ = 17;
+	/// Control channel RX mode support. REQUIRES VIRTIO_NET_F_CTRL_VQ
+	pub const NET_CTRL_RX = 18;
+	/// Control channel VLAN filtering. REQUIRES VIRTIO_NET_F_CTRL_VQ
+	pub const NET_CTRL_VLAN = 19;
+	/// Driver can send gratuitous packets. REQUIRES VIRTIO_NET_F_CTRL_VQ
+	pub const NET_GUEST_ANNOUNCE = 21;
+	/// Device supports multiqueue with automatic receive steering. REQUIRES VIRTIO_NET_F_CTRL_VQ
+	pub const NET_MQ = 22;
+	/// Set MAC address through control channel. REQUIRES VIRTIO_NET_F_CTRL_VQ
+	pub const NET_CTRL_MAC_ADDR = 23;
+	/// Device can receive USO packets. Unlike UFO (fragmenting the packet) the USO splits large
+	/// UDP packet to several segments when each of these smaller packets has UDP header.
+	pub const NET_HOST_USO = 56;
+	/// Device can report per-packet hash value and a type of calculated hash.
+	pub const NET_HASH_REPORT = 57;
+	/// Driver can provide the exact hdr_len value. Device benefits from knowing the exact header length.
+	pub const NET_GUEST_HDRLEN = 59;
+	/// Device supports RSS (receive-side scaling) with Toeplitz hash calculation
+	/// and configurable hash parameters for receive steering. REQUIRES VIRTIO_NET_F_CTRL_VQ.
+	/// Useful for Multi CPU or High Throughput
+	pub const NET_RSS = 60;
+	/// Device can process duplicated ACKs and report number of coalesced segments and duplicated ACKs.
+	pub const NET_RSC_EXIT = 61;
+	/// Device may act as a standby for a primary device with the same MAC address.
+	pub const NET_STANDBY = 62;
+	/// Device reports speed and duplex.
+	pub const NET_SPEED_DUPLEX = 63;
+
+	/// Maximum size of any single segment is in size_max.
+	pub const BLK_SIZE_MAX = 1;
+	/// Maximum number of segments in a request is in seg_max.
+	pub const BLK_SEG_MAX = 2;
+	/// Disk-style geometry specified in geometry.
+	pub const BLK_GEOMETRY = 4;
+	/// Block device is read-only.
+	pub const BLK_RO = 5;
+	/// Block size of disk is in blk_size.
+	pub const BLK_BLK_SIZE = 6;
+	/// Block device supports flush command.
+	pub const BLK_FLUSH = 9;
+	/// Device exports information on optimal I/O alignment.
+	pub const BLK_TOPOLOGY = 10;
+	/// Device can toggle its cache between writeback and writethrough modes.
+	pub const BLK_CONFIG_WCE = 11;
+	/// Device supports multiqueue.
+	pub const BLK_MQ = 12;
+	/// Block device supports discard command.
+	pub const BLK_DISCARD = 13;
+	/// Device can support write zeroes command, maximum write zeroes
+	/// sectors size in max_write_zeroes_sectors and maximum
+	/// write zeroes segment number in max_write_zeroes_seg.
+	pub const BLK_WRITE_ZEROES = 14;
+	/// Device supports providing storage lifetime information.
+	pub const BLK_LIFETIME = 15;
+	/// Device supports secure erase command, maximum
+	/// erase sectors count in max_secure_erase_sectors
+	/// and maximum erase segment number in max_secure_erase_seg.
+	pub const BLK_SECURE_ERASE = 16;
 };
 
 pub const virtq_desc = extern struct {
@@ -476,14 +493,12 @@ pub const FeatureSet = struct {
 		return set;
 	}
 
-	pub fn add(set: *FeatureSet, feat: Feature) void {
-		const featnum = @intFromEnum(feat);
-		set.feats[featnum/32] |= 1 << (featnum & 31);
+	pub fn add(set: *FeatureSet, feat: comptime_int) void {
+		set.feats[feat/32] |= 1 << (feat & 31);
 	}
 
-	pub fn has(set: *FeatureSet, feat: Feature) bool {
-		const featnum = @intFromEnum(feat);
-		return (set.feats[featnum/32] & (1 << (featnum & 31))) != 0;
+	pub fn has(set: *const FeatureSet, feat: comptime_int) bool {
+		return (set.feats[feat/32] & (1 << (feat & 31))) != 0;
 	}
 };
 
@@ -510,9 +525,9 @@ pub fn attach(regs: *volatile mmio_regs, irqno: u32, allocator: *const std.mem.A
 	regs.status.acknowledge = true;
 
 	log.info("Attempting to attach '{s}'.", .{@tagName(regs.device_id)});
-	const attach_fn: @TypeOf(attach) = switch (regs.device_id) {
+	const attach_fn: *const fn (*volatile mmio_regs, u32, *const std.mem.Allocator) (dev.Error || std.mem.Allocator.Error)!void = switch (regs.device_id) {
 		// .net => @panic("NET unfinished"),
-		// .block => @import("vioblk.zig").attach(regs, irqno, allocator),
+		.block => @import("vioblk.zig").attach,
 		.rng => @import("viorng.zig").attach,
 		// .sound => @panic("SND unfinished"),
 		// .gpu => @panic("GPU unfinished"),

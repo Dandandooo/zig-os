@@ -1,7 +1,17 @@
+# Zig Utilities
 .zig-cache
 zig-out
+
+# Nix Utilities
 flake.lock
-qemu.log
+
+# VS Code Setup
 .vscode/
 *.code-workspace
+
+# Project Specific
+qemu.log
+*.raw
+
+# MacOS
 .DS_Store

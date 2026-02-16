@@ -20,8 +20,8 @@ const qemu_base = .{
     "-object", "rng-random,filename=/dev/urandom,id=rng0",
 
     // Block Device
-    // "-device", "virtio-blk-device,drive=blk0",
-    // "-drive", "file=ktfs.raw,id=blk0,if=none,format=raw,readonly=false",
+    "-device", "virtio-blk-device,drive=blk0",
+    "-drive", "file=ktfs.raw,id=blk0,if=none,format=raw,readonly=false",
 
     // GPU Device
     // "-device", "virtio-gpu-device",
@@ -103,6 +103,37 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Start the kernel in qemu.");
     run_step.dependOn(&run_qemu.step);
+
+    // -----------------------------
+    // size - print kernel size
+    // -----------------------------
+    const size_args = .{
+        "python",
+        "-c",
+        "import os\n"
+        ++ "p='zig-out/bin/kernel.elf'\n"
+        ++ "s=os.path.getsize(p)\n"
+        ++ "units=['b','kb','mb','gb','tb']\n"
+        ++ "i=0\n"
+        ++ "while s>=1024 and i<len(units)-1:\n"
+        ++ "    s/=1024\n"
+        ++ "    i+=1\n"
+        ++ "print(f'{s:.2f} {units[i]}')\n",
+    };
+    const size_cmd = b.addSystemCommand(&size_args);
+    size_cmd.step.dependOn(b.getInstallStep());
+    const size_step = b.step("size", "Print kernel size (human readable)");
+    size_step.dependOn(&size_cmd.step);
+
+    // -----------------------------
+    // ktfs - create filesystem via docker
+    // -----------------------------
+    const ktfs_cmd = b.addSystemCommand(&.{
+        "bash", "-c",
+        "docker run --rm --platform linux/amd64 -v \"$(pwd)\":/workspace -w /workspace ubuntu:latest /workspace/util/fs/mkfs_ktfs ktfs.raw 64M 128 files/wav/* files/bin/*"
+    });
+    const ktfs_step = b.step("ktfs", "Create KTFS filesystem image via Docker");
+    ktfs_step.dependOn(&ktfs_cmd.step);
 
     // -----------------------------
     // test - kernel test mode
