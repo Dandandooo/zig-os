@@ -6,7 +6,10 @@ const dev = @import("./dev/device.zig");
 const Io = @import("./api/io.zig");
 const assert = @import("./util/debug.zig").assert;
 
-const writer = std.io.AnyWriter{ .context = undefined, .writeFn = writefn };
+var writer: std.Io.Writer = .{
+    .vtable = &.{ .drain = drain },
+    .buffer = &.{}, // raw/unbuffered
+};
 var enabled = true; // controls "print"
 pub fn enable() void { enabled = true; }
 pub fn disable() void { enabled = false; }
@@ -25,12 +28,23 @@ pub fn init() void {
 	// );
 }
 
-fn writefn(_: *const anyopaque, message: []const u8) anyerror!usize {
+fn drain(_: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
 	assert(initialized == true, "where are you printing to?");
 
-    for (message) |c|
-        Uart.console_putc(c);
-	return message.len;
+    var written: usize = 0;
+
+    for (data[0 .. data.len - 1]) |chunk| {
+        for (chunk) |c| Uart.console_putc(c);
+        written += chunk.len;
+    }
+
+    const pattern = data[data.len - 1];
+    for (0..splat) |_| {
+        for (pattern) |c| Uart.console_putc(c);
+        written += pattern.len;
+    }
+
+	return written;
 }
 
 pub fn print(comptime format: []const u8, args:anytype) void {

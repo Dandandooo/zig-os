@@ -128,9 +128,9 @@ pub const satp = packed struct(u64) { ppn: u44, asid: u16, mode: satp_mode };
 ////////////
 
 pub inline fn sfence_vma() void {
-    asm volatile ("sfence.vma" ::: "memory");
+    asm volatile ("sfence.vma" ::: .{ .memory = true });
 }
 
 pub inline fn fence() void {
-    asm volatile ("fence rw, rw" ::: "memory");
+    asm volatile ("fence rw, rw" ::: .{ .memory = true });
 }

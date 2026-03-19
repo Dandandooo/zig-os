@@ -8,7 +8,7 @@ pub fn run() util.test_results {
     return util.merge_results("VIRTIO",
         &[_]util.test_results{
             util.run_tests( "VIORNG", &.{
-                .{.name = "shannon entropy test", .func = shannon_entropy_test},
+                .{.name = "shannon entropy test", .func = shannon_entropy_test, .cons = true},
             }),
             util.run_tests("VIOBLK", &.{
                 .{.name = "write then read", .func = vioblk_write_read_test, .cons = true}
@@ -63,13 +63,13 @@ fn vioblk_write_read_test() anyerror!void {
     defer io.close();
 
     // Save original bytes
-    const orig_buf: []u8 = try heap.allocator.alloc(u8, blksz);
+    const orig_buf: []u8 = try heap.allocator.alloc(u8, bufsz);
     defer heap.allocator.free(orig_buf);
     const read_orig = try io.readat(orig_buf, 0);
     try util.expect(read_orig == bufsz);
 
     // Create test pattern: ascending bytes
-    const write_buf: []u8 = try heap.allocator.alloc(u8, blksz);
+    const write_buf: []u8 = try heap.allocator.alloc(u8, bufsz);
     defer heap.allocator.free(write_buf);
     for (0..bufsz) |i| {
         write_buf[i] = @intCast(i % 256);
@@ -80,7 +80,7 @@ fn vioblk_write_read_test() anyerror!void {
     try util.expect(written == bufsz);
 
     // Read back from sector 0
-    const read_buf: []u8 = try heap.allocator.alloc(u8, blksz);
+    const read_buf: []u8 = try heap.allocator.alloc(u8, bufsz);
     defer heap.allocator.free(read_buf);
     @memset(read_buf, 0);
     const read = try io.readat(read_buf, 0);
@@ -96,7 +96,7 @@ fn vioblk_write_read_test() anyerror!void {
     try util.expect(restored == bufsz);
 
     // Verify restoration
-    const verify_buf: []u8 = try heap.allocator.alloc(u8, blksz);
+    const verify_buf: []u8 = try heap.allocator.alloc(u8, bufsz);
     defer heap.allocator.free(verify_buf);
     @memset(verify_buf, 0);
     const read_verify = try io.readat(verify_buf, 0);

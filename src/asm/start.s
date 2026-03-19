@@ -94,7 +94,7 @@ smode_start:
         j       _start
 
         .section        .data.stack, "wa", @progbits
-        .balign		16
+        .balign		4096
 
         .equ		MAIN_STACK_SIZE, 4096
 

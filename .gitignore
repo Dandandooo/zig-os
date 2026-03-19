@@ -1,6 +1,7 @@
 # Zig Utilities
-.zig-cache
-zig-out
+.zig-cache/
+.zig-global-cache/
+zig-out/
 
 # Nix Utilities
 flake.lock

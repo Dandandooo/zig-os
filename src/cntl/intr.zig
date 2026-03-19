@@ -6,6 +6,8 @@ const thread = @import("../conc/thread.zig");
 const timer = @import("../conc/timer.zig");
 const reg = @import("../riscv/reg.zig");
 
+const Uart = @import("../dev/uart.zig");
+
 const log = std.log.scoped(.INTR);
 
 
@@ -45,7 +47,7 @@ pub inline fn disable() usize {
 
 pub inline fn restore(prev: usize) void {
     reg.csrc("sstatus", reg.SSTATUS_SIE);
-    reg.csrs("sstatus", prev);
+    reg.csrs("sstatus", prev & reg.SSTATUS_SIE);
 }
 
 pub inline fn enabled() bool {

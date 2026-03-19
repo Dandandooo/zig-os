@@ -15,7 +15,6 @@ const VIORNG = @This();
 
 const BUFSZ: u32 = 1024;
 const NAME: []const u8 = "rng";
-const IRQ_PRIO: u32 = 1;
 
 regs: *volatile virtio.mmio_regs,
 instno: u32,
@@ -86,14 +85,24 @@ pub fn read(io: *IO, buf: []u8) !usize {
 
     if (self.bufpos >= BUFSZ) {
         log.debug("Refilling virtio buffer", .{});
-        self.vq.avail.idx += 1;
         self.vq.avail.ring[0] = 0;
+        reg.fence();
+        self.vq.avail.idx +%= 1;
+        const target_idx = self.vq.avail.idx;
+        const used_idx_ptr: *volatile u16 = @ptrCast(&self.vq.used.idx);
 
         const pie = intr.disable();
+
         self.regs.notify_avail(0);
-        while (self.bufpos > 0)
+        while (used_idx_ptr.* != target_idx) {
+            // if (used_idx_ptr.* == target_idx) {
+            //     intr.restore(pie);
+            //     break;
+            // }
             self.filled.wait();
+        }
         intr.restore(pie);
+        self.bufpos = 0;
     }
 
     const available = BUFSZ - self.bufpos;

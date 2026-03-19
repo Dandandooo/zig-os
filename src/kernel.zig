@@ -71,7 +71,7 @@ fn exit(comptime success: bool) noreturn {
         :
         : [halt_eid] "i" (0x0A484c54),
           [exit_code] "i" (@intFromBool(!success)),
-        : "a6", "a7"
+        : .{ .x16 = true, .x17 = true }
     );
 
     while (true) {}

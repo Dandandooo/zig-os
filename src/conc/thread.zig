@@ -45,7 +45,7 @@ inline fn set_running(thr: *Thread) void {
     asm volatile ("mv tp, %[thr]"
         :
         : [thr] "r" (thr),
-        : "tp"
+        : .{ .x4 = true }
     );
 }
 
@@ -119,7 +119,6 @@ var idle_thread: Thread = .{
 
 pub var initialized = false;
 pub fn init() void {
-    assert(!initialized, "threads already initialized!");
     log.debug("main thread: {*}", .{&main_thread});
     log.debug("main thread anchor = {*}", .{&main_thread.anchor});
     log.debug("main stack anchor = {*}", .{&_main_stack_anchor});
@@ -168,14 +167,12 @@ pub fn yield() void {
     // RISC-V ABI: sp must be 16-byte aligned at call boundaries.
     // assert((SP() & 0xF) == 0, "pre-swtch: sp not 16-byte aligned");
 
-    // log.debug("ptr: {*}", .{next.name.ptr});
     // TODO: switch mspace
     log.debug("Switching to <{s}:{d}>", .{ next.name, next.id });
 
     // TODO: switch memory space for vmem
-    // _thread_swtch must run with interrupts disabled, otherwise an interrupt
-    // can arrive mid-switch and corrupt scheduler/thread state.
     // const old = _thread_swtch(next);
+    _ = intr.enable();
     _ = _thread_swtch(next);
     intr.restore(pie);
 
@@ -186,6 +183,8 @@ pub fn yield() void {
 
     // if (old.state == .exited)
     //     old.reclaim();
+    if (self.state == .exited)
+        page.phys_free(self.lowest);
 }
 
 // Thread Creation
@@ -300,7 +299,7 @@ fn idle_func() void {
         while (ready_list.size > 0)
             yield();
 
-        // Sleep until runnable thread
+        // Keep interrupts enabled while idling so device IRQs can wake waiters.
         log.debug("sleeping", .{});
         _ = intr.disable();
         if (ready_list.size == 0)

@@ -184,12 +184,13 @@ pub inline fn csrrci_sstatus_SIE() isize {
 // meant to suggest that the value is masked by RISCV_SSTATUS_SIE before being
 // written to the sstatus CSR.
 pub inline fn csrwi_sstatus_SIE(newval: isize) void {
-    asm volatile ("csrci sstatus %[c]" + "\n\t" +
-            "csrs sstatus, %[s]"
+    asm volatile (
+            \\ csrci sstatus %[c]
+            \\ csrs sstatus, %[s]
         :
         : [c] "I" (RISCV_SSTATUS_SIE),
           [s] "r" (newval & RISCV_SSTATUS_SIE),
-        : "memory"
+        : .{ .memory = true }
     );
 }
 

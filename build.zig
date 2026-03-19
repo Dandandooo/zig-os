@@ -34,7 +34,7 @@ const qemu_base = .{
 
     // Sound Device
     "-device", "virtio-sound-device,audiodev=audio0",
-    // driver determined later
+    // driver determined during build
 
     // Network Device
     // "-device", "virtio-net-device,netdev=u1",
@@ -59,7 +59,6 @@ pub fn build(b: *std.Build) void {
         };
 
     const target = b.resolveTargetQuery(.{ .cpu_arch = .riscv64, .os_tag = .freestanding, .abi = .none });
-    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .Debug });
 
     // -----------------------------
     // run - normal kernel build
@@ -76,7 +75,7 @@ pub fn build(b: *std.Build) void {
     const kernel_mod = b.createModule(.{
         .root_source_file = b.path("src/kernel.zig"),
         .target = target,
-        .optimize = optimize,
+        .optimize = .Debug,
         .code_model = .medium,
     });
     kernel_mod.addOptions("build_options", build_options);
@@ -147,7 +146,7 @@ pub fn build(b: *std.Build) void {
     const test_mod = b.createModule(.{
         .root_source_file = b.path("src/kernel.zig"),
         .target = target,
-        .optimize = optimize,
+        .optimize = .Debug,
         .code_model = .medium,
         .fuzz = false,
         .error_tracing = false,
@@ -159,8 +158,8 @@ pub fn build(b: *std.Build) void {
     const test_kernel = b.addExecutable(.{
         .root_module = test_mod,
         .name = "test_kernel",
-        .strip = false,
-        .omit_frame_pointer = false,
+        .linkage = .static,
+        .use_lld = true
     });
     test_kernel.setLinkerScript(b.path("kernel.ld"));
 
@@ -178,6 +177,27 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run kernel tests in QEMU");
     test_step.dependOn(&test_qemu.step);
+
+    // -----------------------------
+    // tsize - print test-kernel size
+    // -----------------------------
+    const tsize_args = .{
+        "python",
+        "-c",
+        "import os\n"
+        ++ "p='zig-out/bin/kernel-test.elf'\n"
+        ++ "s=os.path.getsize(p)\n"
+        ++ "units=['b','kb','mb','gb','tb']\n"
+        ++ "i=0\n"
+        ++ "while s>=1024 and i<len(units)-1:\n"
+        ++ "    s/=1024\n"
+        ++ "    i+=1\n"
+        ++ "print(f'{s:.2f} {units[i]}')\n",
+    };
+    const tsize_cmd = b.addSystemCommand(&tsize_args);
+    tsize_cmd.step.dependOn(b.getInstallStep());
+    const tsize_step = b.step("tsize", "Print test-kernel size (human readable)");
+    tsize_step.dependOn(&tsize_cmd.step);
 
     // -----------------------------
     // debug - Run tests with gdb
@@ -278,15 +298,14 @@ fn addAllAssemblyFiles(b: *std.Build, exe: *std.Build.Step.Compile) void {
 fn parse_ram_size(size: []const u8) usize {
     const len = size.len;
     if (len == 0) return 0;
-    const last = size[len - 1];
-    const unit: usize = switch (last) {
+    const unit: usize = switch (size[len - 1]) {
         'K', 'k' => 1,
         'M', 'm' => 2,
         'G', 'g' => 3,
         else => 0,
     };
-    const num = if (unit != 0) size[0 .. len - 1] else size;
-    const n = std.fmt.parseInt(usize, num, 10) catch std.debug.panic("invalid RAM size: {u}\n", .{size});
+    const n = std.fmt.parseInt(usize, if (unit != 0) size[0 .. len - 1] else size, 10)
+        catch std.debug.panic("invalid RAM size: {s}\n", .{size});
     return n * std.math.pow(usize, 1024, unit);
 }
 

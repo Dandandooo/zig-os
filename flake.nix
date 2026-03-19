@@ -2,9 +2,9 @@
   description = "Development shell for Zig with ZLS and QEMU";
 
   inputs = {
-    utils.url = github:numtide/flake-utils;
-    zigpkg.url = github:mitchellh/zig-overlay;
-    zlspkg.url = github:zigtools/zls;
+    utils.url = "github:numtide/flake-utils";
+    zigpkg.url = "github:mitchellh/zig-overlay";
+    zlspkg.url = "github:zigtools/zls";
   };
 
   outputs = { self, nixpkgs, zigpkg, zlspkg, utils }:

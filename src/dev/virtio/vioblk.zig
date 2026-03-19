@@ -4,14 +4,14 @@ const assert = @import("../../util/debug.zig").assert;
 
 const cons = @import("../../console.zig");
 const intr = @import("../../cntl/intr.zig");
+const reg = @import("../../riscv/reg.zig");
 const heap = @import("../../mem/heap.zig");
 const wait = @import("../../conc/wait.zig");
 const dev = @import("../device.zig");
 const virtio = @import("virtio.zig");
 const IO = @import("../../api/io.zig");
+const config = @import("../../config.zig");
 const VIOBLK = @This();
-
-const INTR_PRIO = 1;
 
 const BLKSZ = 512;
 
@@ -35,7 +35,7 @@ const Status = enum(u8) {
 
 const Header = extern struct {
     req_type: types = .in,
-    reserved: u32 = undefined,
+    reserved: u32 = 0,
     sector: u64 = 0,
 };
 
@@ -126,11 +126,11 @@ pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *const st
 fn open(aux: *anyopaque) IO.Error!*IO {
     const self: *VIOBLK = @alignCast(@ptrCast(aux));
 
-    if (self.io.refcnt > 0)
+    if (self.io.refcnt != 0)
         return IO.Error.Busy;
 
     self.regs.enable_virtq(0);
-    intr.enable_source(self.irqno, INTR_PRIO, isr, aux);
+    intr.enable_source(self.irqno, config.VIOBLK_INTR_PRIO, isr, aux);
 
     return self.io.addref();
 }
@@ -144,9 +144,7 @@ pub fn close(io: *IO) void {
 
 fn interact(io: *IO, request: types, data_addr: u64, len: u32, pos: u64) IO.Error!usize {
     const self: *VIOBLK = @fieldParentPtr("io", io);
-
-    self.bLock.acquire();
-    defer self.bLock.release();
+    const stat_ptr: *volatile Status = @ptrCast(&self.vq.stat);
 
     if (len % self.blksz != 0) {
         log.err("write length must be multiple of block size", .{});
@@ -159,25 +157,29 @@ fn interact(io: *IO, request: types, data_addr: u64, len: u32, pos: u64) IO.Erro
     self.vq.desc[DESC_DATA].len = len;
 
     switch (request) {
-        .in => self.vq.desc[DESC_DATA].flags.write = false,
-        .out => self.vq.desc[DESC_DATA].flags.write = true,
+        // .in = device writes data into guest buffer (read request)
+        .in => self.vq.desc[DESC_DATA].flags.write = true,
+        // .out = device reads data from guest buffer (write request)
+        .out => self.vq.desc[DESC_DATA].flags.write = false,
         else => return IO.Error.Unsupported,
     }
 
-    self.vq.stat = .Unfinished;
+    stat_ptr.* = .Unfinished;
 
-    self.vq.avail.idx += 1;
+    self.vq.avail.ring[0] = 0;
+    reg.fence();
+    self.vq.avail.idx +%= 1;
+    const target_idx = self.vq.avail.idx;
+    const used_idx_ptr: *volatile u16 = @ptrCast(&self.vq.used.idx);
 
     const pie = intr.disable();
-
     self.regs.notify_avail(0);
 
-    while (self.vq.stat == .Unfinished)
+    while (used_idx_ptr.* != target_idx)
         self.bCond.wait();
-
     intr.restore(pie);
 
-    return switch (self.vq.stat) {
+    return switch (stat_ptr.*) {
         .OK => len,
         .IOError => IO.Error.Error,
         .Unsupported => IO.Error.Unsupported,

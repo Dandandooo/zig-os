@@ -2,6 +2,7 @@ const std = @import("std");
 const config = @import("../config.zig");
 const assert = @import("../util/debug.zig").assert;
 const IO = @import("../api/io.zig");
+const reg = @import("../riscv/reg.zig");
 const dev = @import("../dev/device.zig");
 const wait = @import("../conc/wait.zig");
 const intr = @import("../cntl/intr.zig");
@@ -56,13 +57,13 @@ const RingBuf = struct {
 
     fn putc(self: *RingBuf, char: u8) void {
         self.data[self.tpos % RBUF_SIZE] = char;
-        asm volatile("" ::: "memory"); // memory barrier
+        reg.fence();
         self.tpos += 1;
     }
 
     fn getc(self: *RingBuf) u8 {
         defer self.hpos += 1;
-        defer asm volatile("" ::: "memory");
+        defer reg.fence();
         return self.data[self.hpos % RBUF_SIZE];
     }
 };

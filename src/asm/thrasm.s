@@ -113,7 +113,7 @@ _thread_startup:
 # Statically allocated stack for the idle thread.
 
         .section        .data.stack, "wa", @progbits
-        .balign          16
+        .balign         4096
 
         .equ            IDLE_STACK_SIZE, 4096
 
