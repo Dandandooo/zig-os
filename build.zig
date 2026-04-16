@@ -49,14 +49,22 @@ const qemu_base = .{
 pub fn build(b: *std.Build) void {
     const ram_size = b.option([]const u8, "ram", "Kernel Ram Size (e.g. 8M)") orelse "16M";
     const chroma_scope = b.option(bool, "gay", "Chroma scope coloring") orelse false;
-    const time_zone = b.option([]const u8, "tz", "Time zone (e.g. UTC, EST, EDT, CST, CDT, PST, GMT, CET, EET)") orelse detect_host_time_zone(b.allocator);
+    const time_zone = b.option([]const u8, "tz", "Time zone (e.g. UTC, EST, EDT, CST, CDT, PST, GMT, CET, EET)")
+        orelse detect_time_zone(b.allocator) orelse "UTC";
 
-    const qemu_args = qemu_base ++ .{ "-m", ram_size } ++
-        switch (b.graph.host.result.os.tag) {
-            .linux => .{ "-audio", "driver=alsa,model=virtio,id=audio0"},
-            .macos => .{ "-audio", "driver=coreaudio,model=virtio,id=audio0"},
-            else => .{ "-audio", "driver=wav,model=virtio,id=audio0"},
-        };
+    const audio_driver = blk: {
+        const res = std.process.Child.run(.{
+            .allocator = b.allocator,
+            .argv = &[_][]const u8{ "qemu-system-riscv64", "-audio", "help" },
+        }) catch break :blk "wav";
+        inline for (.{"alsa", "pa", "coreaudio"}) |drv|
+            if (std.mem.indexOf(u8, res.stdout, drv) != null) break :blk drv;
+        break :blk "wav";
+    };
+
+    const audio_arg = b.fmt("driver={s},model=virtio,id=audio0,server=host.docker.internal:4713", .{audio_driver});
+
+    const qemu_args = qemu_base ++ .{ "-m", ram_size, "-audio", audio_arg };
 
     const target = b.resolveTargetQuery(.{ .cpu_arch = .riscv64, .os_tag = .freestanding, .abi = .none });
 
@@ -214,7 +222,8 @@ pub fn build(b: *std.Build) void {
     // gdb - launch gdb for the elf
     // -----------------------------
     const gdb_args = .{
-        "riscv64-elf-gdb", "zig-out/bin/kernel-test.elf",
+        "gdb", "zig-out/bin/kernel-test.elf",
+        "-ex", "set architecture riscv:rv64",
         "-ex", "break kernel.crash",
         "-ex", "target remote :1234",
         // "-ex", "continue",
@@ -278,7 +287,7 @@ pub fn build(b: *std.Build) void {
 
 fn addAllAssemblyFiles(b: *std.Build, exe: *std.Build.Step.Compile) void {
     const allocator = std.heap.page_allocator;
-    const src_dir = std.fs.cwd().openDir("src", .{}) catch @panic("no src dir");
+    const src_dir = std.fs.cwd().openDir("src", .{ .iterate = true }) catch @panic("no src dir");
     var walker = src_dir.walk(allocator) catch @panic("failed to walk");
     while (walker.next() catch null) |entry| {
         if (entry.kind != .file) continue;
@@ -309,21 +318,7 @@ fn parse_ram_size(size: []const u8) usize {
     return n * std.math.pow(usize, 1024, unit);
 }
 
-fn detect_host_time_zone(allocator: std.mem.Allocator) []const u8 {
-    if (std.process.getEnvVarOwned(allocator, "TZ")) |tz_env| {
-        if (normalize_time_zone(tz_env)) |tz| return tz;
-    } else |_| {}
-
-    if (detect_time_zone_from_date(allocator)) |tz| return tz;
-
-    if (std.fs.realpathAlloc(allocator, "/etc/localtime")) |path| {
-        if (normalize_time_zone(path)) |tz| return tz;
-    } else |_| {}
-
-    return "UTC";
-}
-
-fn detect_time_zone_from_date(allocator: std.mem.Allocator) ?[]const u8 {
+fn detect_time_zone(allocator: std.mem.Allocator) ?[]const u8 {
     var child = std.process.Child.init(&.{ "date", "+%Z" }, allocator);
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Ignore;
@@ -348,15 +343,6 @@ fn normalize_time_zone(name: []const u8) ?[]const u8 {
 
     inline for (tz) |tz_name|
         if (std.ascii.eqlIgnoreCase(name, tz_name)) return tz_name;
-
-
-    if (std.mem.indexOf(u8, name, "America/New_York") != null) return "EST";
-    if (std.mem.indexOf(u8, name, "America/Chicago") != null) return "CST";
-    if (std.mem.indexOf(u8, name, "America/Los_Angeles") != null) return "PST";
-    if (std.mem.indexOf(u8, name, "Europe/Berlin") != null) return "CET";
-    if (std.mem.indexOf(u8, name, "Europe/Helsinki") != null) return "EET";
-    if (std.mem.indexOf(u8, name, "Etc/UTC") != null) return "UTC";
-    if (std.mem.indexOf(u8, name, "Etc/GMT") != null) return "GMT";
 
     return null;
 }

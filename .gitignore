@@ -9,9 +9,11 @@ flake.lock
 # VS Code Setup
 .vscode/
 *.code-workspace
+.devcontainer/devcontainer.env
 
 # Project Specific
 qemu.log
+qemu.wav
 *.raw
 
 # MacOS

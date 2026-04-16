@@ -1,0 +1,32 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/debian
+{
+	"name": "Zebian",
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	"build": { "dockerfile": "Dockerfile" },
+	"initializeCommand": "echo TZ=$(readlink /etc/localtime | sed \"s#.*/zoneinfo/##\") > .devcontainer/devcontainer.env",
+	"containerEnv": {
+		"PULSE_SERVER": "tcp:host.docker.internal:4713",
+		"QEMU_AUDIO_DRV": "pa",
+        "SDL_AUDIODRIVER": "pulse"
+	},
+	"runArgs": [
+		"--platform=linux/amd64",
+		"--hostname=ziggy",
+		"--add-host=host.docker.internal:host-gateway",
+		"--env-file=.devcontainer/devcontainer.env"
+	],
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ziglang.vscode-zig",
+				"prime31.zig",
+				"vadimcn.vscode-lldb",
+				"llvm-vs-code-extensions.lldb-dap",
+				"zhwu95.riscv",
+				"ms-vscode.hexeditor",
+				"Gruntfuggly.todo-tree"
+			]
+		}
+	}
+}
