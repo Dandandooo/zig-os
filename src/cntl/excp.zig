@@ -4,7 +4,7 @@ const trap = @import("trap.zig");
 const assert = @import("../util/debug.zig").assert;
 const kernel = @import("../kernel.zig");
 
-const log = @import("std").log.scoped(.EXCEPTION);
+const log = @import("std").log.scoped(.EXCP);
 
 // Exported Definitions
 

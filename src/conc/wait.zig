@@ -13,6 +13,7 @@ pub const Condition = struct {
     pub fn wait(cond: *Condition) void {
         log.debug("Waiting on \"{s}\" condition", .{cond.name});
         const pie = intr.disable();
+        defer intr.restore(pie);
 
         const self = Thread.TP();
         assert(self.state == .running, "only running thread can wait!");

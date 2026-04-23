@@ -21,7 +21,7 @@ pub fn init() void {
 	Uart.uart0_init();
 
 	initialized = true;
-	std.log.scoped(.CONSOLE).info("initialized", .{});
+	std.log.scoped(.CONS).info("initialized", .{});
 	// struct_log(
 	//  .debug, .CONSOLE, "testing struct",
 	//  .{"test_int: {d}", "test_hex: 0x{X}", "test_ptr: {p}"}, .{123, 160, &&writer}
@@ -64,7 +64,7 @@ pub fn icon_print(
 	args: anytype
 ) void {
 	const header, const head_args = if (scope) |name|
-		.{"{s}\x1b[90;1m:\x1b[0;{s}m {s:<9} \x1b[34m>>\x1b[0m ", .{icon, if (gay) chroma[chroma_idx] else "33", name}}
+		.{"{s}\x1b[90;1m:\x1b[0;{s}m {s:<6} \x1b[0m\x1b[34m>>\x1b[0m ", .{icon, if (gay) chroma[chroma_idx] else "33", name}}
 		else .{"{s}\x1b[0;34m>>\x1b[0m ", .{icon}};
 
 	chroma_idx = (chroma_idx + 1) % chroma.len;
@@ -87,9 +87,9 @@ pub fn log(
 ) void {
 	icon_println(switch (level) {
 		.debug => "🐞",
-		.info => "ℹ️ ",
-		.warn => "⚠️ ",
-		.err => "🚨",
+		.info  => "⚙️ ",
+		.warn  => "✋",
+		.err   => "🚨",
 	}, if (scope == .default) null else @tagName(scope), format, args);
 }
 

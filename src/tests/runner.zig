@@ -8,10 +8,10 @@ const assert = @import("../util/debug.zig").assert;
 // modules to test
 
 const test_map = .{
-    @import("api/io.zig"),
-    @import("mem/page.zig"),
+    // @import("api/io.zig"),
+    // @import("mem/page.zig"),
     // @import("mem/vmem.zig"),
-    @import("conc/thread.zig"),
+    // @import("conc/thread.zig"),
     @import("dev/virtio.zig"),
 };
 

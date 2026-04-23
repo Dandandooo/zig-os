@@ -152,7 +152,17 @@ pub fn init() void {
 pub fn yield() void {
     const self = TP();
 
+    log.debug("Disabling interrupts", .{});
+
     const pie = intr.disable();
+
+    log.debug("Current thread state: <{s}> || name: <{s}>", .{@tagName(self.state), self.name});
+
+    var cur: ?*Thread = self;
+    while (cur) |cur_node| : (cur = cur_node.next) {
+        log.debug("cur name: {s}:{s}", .{cur_node.name, @tagName(cur_node.state)});
+    }
+
     if (self.state == .running) {
         self.state = .ready;
         if (self != &idle_thread)
@@ -172,8 +182,10 @@ pub fn yield() void {
 
     // TODO: switch memory space for vmem
     // const old = _thread_swtch(next);
-    _ = intr.enable();
+
+    log.debug("About to thread_switch to <{*}>", .{next});
     _ = _thread_swtch(next);
+    _ = intr.enable();
     intr.restore(pie);
 
     assert((SP() & 0xF) == 0, "post-swtch: sp not 16-byte aligned");
@@ -257,7 +269,7 @@ pub fn exit() noreturn {
     const self = TP();
     assert(self.state == .running, "you must be running to exit");
     if (self == &main_thread) kernel.shutdown();
-    // assert(self.state != .exited, "double kill!");
+    assert(self.state != .exited, "double kill!");
     self.state = .exited;
 
     while (self.locks.head) |lock| : (_ = self.*.locks.pop(self.*.locks.head))
@@ -305,5 +317,6 @@ fn idle_func() void {
         if (ready_list.size == 0)
             asm volatile ("wfi");
         _ = intr.enable();
+        // log.debug("sstatus: {x}", .{@import("../riscv/reg.zig").csrr("sstatus")});
     }
 }

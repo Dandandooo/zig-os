@@ -2,7 +2,7 @@ const std = @import("std");
 const config = @import("../config.zig");
 const IO = @import("../api/io.zig");
 const assert = @import("../util/debug.zig").assert;
-const log = std.log.scoped(.DEVICES);
+const log = std.log.scoped(.DEVICE);
 
 const device_type = enum {
     other,
