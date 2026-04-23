@@ -15,8 +15,13 @@
         pkgs = nixpkgs.legacyPackages.${system};
       in {
         devShells.default = pkgs.mkShell {
-          nativeBuildInputs = [ zig.master zls.default ];
-          buildInputs = with pkgs; [ qemu ];
+          nativeBuildInputs = [ zig."0.15.2" zls.default ];
+          buildInputs = with pkgs; [
+            qemu
+            just
+            zsh
+          ];
+          shellHook = ''exec zsh'';
         };
       });
 }
