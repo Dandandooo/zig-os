@@ -172,20 +172,6 @@ pub fn build(b: *std.Build) void {
     debug_step.dependOn(&debug_qemu.step);
 
     // -----------------------------
-    // gdb - launch gdb for the elf
-    // -----------------------------
-    const gdb_args = .{
-        "gdb", "zig-out/bin/kernel-test.elf",
-        "-ex", "set architecture riscv:rv64",
-        "-ex", "break kernel.crash",
-        "-ex", "target remote :1234",
-        // "-ex", "continue",
-    };
-    const gdb_qemu = b.addSystemCommand(&gdb_args);
-    const gdb_step = b.step("gdb", "Run GDB for kernel");
-    gdb_step.dependOn(&gdb_qemu.step);
-
-    // -----------------------------
     // docs - documentation builder
     // -----------------------------
     const docs_step = b.step("docs", "Generate documentation");
