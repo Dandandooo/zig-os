@@ -25,12 +25,12 @@ This repository is a Zig-based hobby operating system targeting RISC-V and typic
 5. Summarize what changed and note any unverified follow-up.
 
 ## Preferred Commands
-- Build/run kernel: `zig build run`
-- Run tests in QEMU: `zig build test`
-- Debug test kernel: `zig build debug`
-- Launch GDB: `zig build gdb`
-- Print kernel size: `zig build size`
-- Translate test address: `zig build taddr -- <addr>`
+- Build/run kernel: `just run`
+- Run tests in QEMU: `just test`
+- Debug test kernel: `just debug`
+- Launch GDB: `just gdb`
+- Print kernel size: `just size`
+- Translate test address: `just taddr <addr>`
 
 ## Editing Guidance
 - Prefer touching existing files over creating new abstractions.

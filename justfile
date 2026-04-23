@@ -15,19 +15,19 @@ build:
     zig build
 
 # Run the regular executable
-run:
+run: _check_ktfs
     zig build run
 
 [private]
-runn:
+runn: _check_ktfs
     zig build run -Dgay
 
 # Run the test executable
-test:
+test: _check_ktfs
     zig build test
 
 # Run the test executable in gdb
-debug:
+debug: _check_ktfs
     zig build debug
 
 # Attach gdb to the executable
@@ -61,6 +61,9 @@ taddr address: build
 mkfs_ktfs:
     ./util/fs/mkfs_ktfs ktfs.raw 64M 128 files/wav/* files/bin/*
 
+_check_ktfs:
+    [ -f "ktfs.raw" ] || just mkfs_ktfs > /dev/null
+
 #####################
 ## File Management ##
 #####################
@@ -82,7 +85,7 @@ clean-all: clean
 
 # Print the number of lines of code in this project
 cloc:
-    cloc src/ build.zig kernel.ld justfile
+    cloc src/ build.zig kernel.ld justfile flake.nix *.md
 
 # List available qemu audio drivers
 [private]

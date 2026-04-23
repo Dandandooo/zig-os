@@ -19,6 +19,7 @@
           buildInputs = with pkgs; [
             qemu
             just
+            gdb
             zsh
           ];
           shellHook = ''exec zsh'';
