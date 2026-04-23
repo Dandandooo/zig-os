@@ -34,6 +34,7 @@ const qemu_base = .{
 
     // Sound Device
     "-device", "virtio-sound-device,audiodev=audio0",
+    // "-audio", "driver=pa,model=virtio,id=audio0,server=host.docker.internal:4713",
     // driver determined during build
 
     // Network Device
@@ -57,12 +58,16 @@ pub fn build(b: *std.Build) void {
             .allocator = b.allocator,
             .argv = &[_][]const u8{ "qemu-system-riscv64", "-audio", "help" },
         }) catch break :blk "wav";
-        inline for (.{"alsa", "pa", "coreaudio"}) |drv|
-            if (std.mem.indexOf(u8, res.stdout, drv) != null) break :blk drv;
+        if (null != std.mem.indexOf(u8, res.stdout, "alsa"))
+            break :blk "alsa";
+        if (null != std.mem.indexOf(u8, res.stdout, "coreaudio"))
+            break :blk "coreaudio";
+        if (null != std.mem.indexOf(u8, res.stdout, "pa"))
+            break :blk "pa,server=host.docker.internal:4713";
         break :blk "wav";
     };
 
-    const audio_arg = b.fmt("driver={s},model=virtio,id=audio0,server=host.docker.internal:4713", .{audio_driver});
+    const audio_arg = b.fmt("driver={s},model=virtio,id=audio0", .{audio_driver});
 
     const qemu_args = qemu_base ++ .{ "-m", ram_size, "-audio", audio_arg };
 
@@ -112,37 +117,6 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_qemu.step);
 
     // -----------------------------
-    // size - print kernel size
-    // -----------------------------
-    const size_args = .{
-        "python",
-        "-c",
-        "import os\n"
-        ++ "p='zig-out/bin/kernel.elf'\n"
-        ++ "s=os.path.getsize(p)\n"
-        ++ "units=['b','kb','mb','gb','tb']\n"
-        ++ "i=0\n"
-        ++ "while s>=1024 and i<len(units)-1:\n"
-        ++ "    s/=1024\n"
-        ++ "    i+=1\n"
-        ++ "print(f'{s:.2f} {units[i]}')\n",
-    };
-    const size_cmd = b.addSystemCommand(&size_args);
-    size_cmd.step.dependOn(b.getInstallStep());
-    const size_step = b.step("size", "Print kernel size (human readable)");
-    size_step.dependOn(&size_cmd.step);
-
-    // -----------------------------
-    // ktfs - create filesystem via docker
-    // -----------------------------
-    const ktfs_cmd = b.addSystemCommand(&.{
-        "bash", "-c",
-        "docker run --rm --platform linux/amd64 -v \"$(pwd)\":/workspace -w /workspace ubuntu:latest /workspace/util/fs/mkfs_ktfs ktfs.raw 64M 128 files/wav/* files/bin/*"
-    });
-    const ktfs_step = b.step("ktfs", "Create KTFS filesystem image via Docker");
-    ktfs_step.dependOn(&ktfs_cmd.step);
-
-    // -----------------------------
     // test - kernel test mode
     // -----------------------------
     const test_options = b.addOptions();
@@ -187,27 +161,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&test_qemu.step);
 
     // -----------------------------
-    // tsize - print test-kernel size
-    // -----------------------------
-    const tsize_args = .{
-        "python",
-        "-c",
-        "import os\n"
-        ++ "p='zig-out/bin/kernel-test.elf'\n"
-        ++ "s=os.path.getsize(p)\n"
-        ++ "units=['b','kb','mb','gb','tb']\n"
-        ++ "i=0\n"
-        ++ "while s>=1024 and i<len(units)-1:\n"
-        ++ "    s/=1024\n"
-        ++ "    i+=1\n"
-        ++ "print(f'{s:.2f} {units[i]}')\n",
-    };
-    const tsize_cmd = b.addSystemCommand(&tsize_args);
-    tsize_cmd.step.dependOn(b.getInstallStep());
-    const tsize_step = b.step("tsize", "Print test-kernel size (human readable)");
-    tsize_step.dependOn(&tsize_cmd.step);
-
-    // -----------------------------
     // debug - Run tests with gdb
     // -----------------------------
     const debug_args = test_args ++ .{"-s", "-S"};
@@ -231,45 +184,6 @@ pub fn build(b: *std.Build) void {
     const gdb_qemu = b.addSystemCommand(&gdb_args);
     const gdb_step = b.step("gdb", "Run GDB for kernel");
     gdb_step.dependOn(&gdb_qemu.step);
-
-
-    // -----------------------------
-    // addr - address finder
-    // -----------------------------
-    const addr_step = b.step("addr", "Translate address to source location");
-
-    // Get positional parameter from args
-    if (b.args) |args| {
-        // Look for address after "addr" in command line
-        for (args) | arg | {
-            const addr_cmd = b.addSystemCommand(&.{
-                "/opt/homebrew/opt/llvm/bin/llvm-addr2line",
-                "-e", "zig-out/bin/kernel.elf",
-                "-f", arg,
-            });
-            addr_cmd.step.dependOn(b.getInstallStep());
-            addr_step.dependOn(&addr_cmd.step);
-        }
-    }
-
-    // -----------------------------
-    // taddr - address finder (test)
-    // -----------------------------
-    const taddr_step = b.step("taddr", "Translate address to source location (test)");
-
-    // Get positional parameter from args
-    if (b.args) |args| {
-        // Look for address after "taddr" in command line
-        for (args) | arg | {
-            const taddr_cmd = b.addSystemCommand(&.{
-                "/opt/homebrew/opt/llvm/bin/llvm-addr2line",
-                "-e", "zig-out/bin/kernel-test.elf",
-                "-f", arg,
-            });
-            taddr_cmd.step.dependOn(b.getInstallStep());
-            taddr_step.dependOn(&taddr_cmd.step);
-        }
-    }
 
     // -----------------------------
     // docs - documentation builder
