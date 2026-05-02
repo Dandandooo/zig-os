@@ -9,12 +9,14 @@
 	// Ensure sound passthrough
 	"containerEnv": {
 		"PULSE_SERVER": "tcp:host.docker.internal:4713",
-		"QEMU_AUDIO_DRV": "pa",
-        "SDL_AUDIODRIVER": "pulse"
+		// "QEMU_AUDIO_DRV": "pa",
+        // "SDL_AUDIODRIVER": "pulse"
 	},
 
 	"runArgs": [
 		"--hostname=ziggy",
+		"--device", "/dev/snd",
+		"--group-add=audio",
 		"--add-host=host.docker.internal:host-gateway",
 		"--env-file=.devcontainer/devcontainer.env"
 	],
