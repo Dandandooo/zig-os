@@ -2,26 +2,38 @@ const std = @import("std");
 
 const qemu_base = .{
     "qemu-system-riscv64",
-    "-machine", "virt",
-    "-bios", "none",
-    "-smp", "1",
+    "-machine",
+    "virt",
+    "-bios",
+    "none",
+    "-smp",
+    "1",
 
-    "-global", "virtio-mmio.force-legacy=false",
-    "-cpu", "rv64",
+    "-global",
+    "virtio-mmio.force-legacy=false",
+    "-cpu",
+    "rv64",
     "-nographic",
-    "-d", "guest_errors,invalid_mem,trace:virtio_*,int",
-    "-D", "qemu.log",
+    "-d",
+    "guest_errors,invalid_mem,trace:virtio_*,int",
+    "-D",
+    "qemu.log",
 
     // Console Device
-    "-serial", "mon:stdio",
+    "-serial",
+    "mon:stdio",
 
     // RNG Device
-    "-device", "virtio-rng-device,rng=rng0",
-    "-object", "rng-random,filename=/dev/urandom,id=rng0",
+    "-device",
+    "virtio-rng-device,rng=rng0",
+    "-object",
+    "rng-random,filename=/dev/urandom,id=rng0",
 
     // Block Device
-    "-device", "virtio-blk-device,drive=blk0",
-    "-drive", "file=ktfs.raw,id=blk0,if=none,format=raw,readonly=false",
+    "-device",
+    "virtio-blk-device,drive=blk0",
+    "-drive",
+    "file=ktfs.raw,id=blk0,if=none,format=raw,readonly=false",
 
     // GPU Device
     // "-device", "virtio-gpu-device",
@@ -33,7 +45,8 @@ const qemu_base = .{
     // "-device", "virtio-tablet-device",
 
     // Sound Device
-    "-device", "virtio-sound-device,audiodev=audio0",
+    "-device",
+    "virtio-sound-device,audiodev=audio0",
     // "-audio", "driver=pa,model=virtio,id=audio0,server=host.docker.internal:4713",
     // driver determined during build
 
@@ -43,19 +56,16 @@ const qemu_base = .{
 
 };
 
-
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
 pub fn build(b: *std.Build) void {
     const ram_size = b.option([]const u8, "ram", "Kernel Ram Size (e.g. 8M)") orelse "16M";
     const chroma_scope = b.option(bool, "gay", "Chroma scope coloring") orelse false;
-    const time_zone = b.option([]const u8, "tz", "Time zone (e.g. UTC, EST, EDT, CST, CDT, PST, GMT, CET, EET)")
-        orelse detect_time_zone(b.allocator) orelse "UTC";
+    const time_zone = b.option([]const u8, "tz", "Time zone (e.g. UTC, EST, EDT, CST, CDT, PST, GMT, CET, EET)") orelse detect_time_zone(b) orelse "UTC";
 
     const audio_driver = blk: {
-        const res = std.process.Child.run(.{
-            .allocator = b.allocator,
+        const res = std.process.run(b.allocator, b.graph.io, .{
             .argv = &[_][]const u8{ "qemu-system-riscv64", "-audio", "help" },
         }) catch break :blk "wav";
         if (null != std.mem.indexOf(u8, res.stdout, "alsa"))
@@ -82,7 +92,6 @@ pub fn build(b: *std.Build) void {
     build_options.addOption(bool, "gay", chroma_scope);
     build_options.addOption(bool, "test_mode", false);
     build_options.addOption([]const u8, "time_zone", time_zone);
-
 
     // Create a module for the freestanding kernel
     const kernel_mod = b.createModule(.{
@@ -137,18 +146,13 @@ pub fn build(b: *std.Build) void {
     });
     test_mod.addOptions("build_options", test_options);
 
-    const test_kernel = b.addExecutable(.{
-        .root_module = test_mod,
-        .name = "test_kernel",
-        .linkage = .static,
-        .use_lld = true
-    });
+    const test_kernel = b.addExecutable(.{ .root_module = test_mod, .name = "test_kernel", .linkage = .static, .use_lld = true });
     test_kernel.setLinkerScript(b.path("kernel.ld"));
 
     addAllAssemblyFiles(b, test_kernel);
     // test_kernel.addCSourceFiles(.{ .files = "src/asm/*.s"});
 
-    const build_test = b.addInstallArtifact(test_kernel, .{ .dest_sub_path = "kernel-test.elf"});
+    const build_test = b.addInstallArtifact(test_kernel, .{ .dest_sub_path = "kernel-test.elf" });
 
     b.default_step.dependOn(&build_test.step);
 
@@ -163,7 +167,7 @@ pub fn build(b: *std.Build) void {
     // -----------------------------
     // debug - Run tests with gdb
     // -----------------------------
-    const debug_args = test_args ++ .{"-s", "-S"};
+    const debug_args = test_args ++ .{ "-s", "-S" };
     const debug_qemu = b.addSystemCommand(&debug_args);
 
     debug_qemu.step.dependOn(b.getInstallStep());
@@ -187,20 +191,17 @@ pub fn build(b: *std.Build) void {
 
 fn addAllAssemblyFiles(b: *std.Build, exe: *std.Build.Step.Compile) void {
     const allocator = std.heap.page_allocator;
-    const src_dir = std.fs.cwd().openDir("src", .{ .iterate = true }) catch @panic("no src dir");
+    const io = b.graph.io;
+    const src_dir = std.Io.Dir.cwd().openDir(io, "src", .{ .iterate = true }) catch @panic("no src dir");
     var walker = src_dir.walk(allocator) catch @panic("failed to walk");
-    while (walker.next() catch null) |entry| {
+    while (walker.next(io) catch null) |entry| {
         if (entry.kind != .file) continue;
         const asmPath = entry.path;
         if (!std.mem.endsWith(u8, asmPath, ".s")) continue;
 
         // std.debug.print("including: {s}\n", .{asmPath});
         // exe.addAssemblyFile(b.path(b.pathJoin(&.{ "src", asmPath })));
-        exe.addCSourceFile(.{
-            .file = b.path(b.pathJoin(&.{ "src", asmPath })),
-            .language = .assembly,
-            .flags = &.{ "-g", "-fno-omit-frame-pointer" }
-        });
+        exe.root_module.addCSourceFile(.{ .file = b.path(b.pathJoin(&.{ "src", asmPath })), .language = .assembly, .flags = &.{ "-g", "-fno-omit-frame-pointer" } });
     }
 }
 
@@ -213,22 +214,19 @@ fn parse_ram_size(size: []const u8) usize {
         'G', 'g' => 3,
         else => 0,
     };
-    const n = std.fmt.parseInt(usize, if (unit != 0) size[0 .. len - 1] else size, 10)
-        catch std.debug.panic("invalid RAM size: {s}\n", .{size});
+    const n = std.fmt.parseInt(usize, if (unit != 0) size[0 .. len - 1] else size, 10) catch std.debug.panic("invalid RAM size: {s}\n", .{size});
     return n * std.math.pow(usize, 1024, unit);
 }
 
-fn detect_time_zone(allocator: std.mem.Allocator) ?[]const u8 {
-    var child = std.process.Child.init(&.{ "date", "+%Z" }, allocator);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Ignore;
-    child.stdin_behavior = .Ignore;
-
-    child.spawn() catch return null;
-
-    const stdout_file = child.stdout orelse return null;
-    const stdout = stdout_file.readToEndAlloc(allocator, 64) catch return null;
-    _ = child.wait() catch {};
+fn detect_time_zone(b: *std.Build) ?[]const u8 {
+    const stdout = blk: {
+        const res = std.process.run(b.allocator, b.graph.io, .{
+            .argv = &.{ "date", "+%Z" },
+            .stdout_limit = .limited(64),
+            .stderr_limit = .limited(0),
+        }) catch return null;
+        break :blk res.stdout;
+    };
 
     const trimmed = std.mem.trim(u8, stdout, " \n\r\t");
     if (trimmed.len == 0) return null;
@@ -239,7 +237,7 @@ fn normalize_time_zone(name: []const u8) ?[]const u8 {
     if (name.len == 0) return null;
 
     const tz =
-        .{"UTC", "GMT", "PST", "CST", "CDT", "EST", "EDT", "CET", "EET"};
+        .{ "UTC", "GMT", "PST", "CST", "CDT", "EST", "EDT", "CET", "EET" };
 
     inline for (tz) |tz_name|
         if (std.ascii.eqlIgnoreCase(name, tz_name)) return tz_name;

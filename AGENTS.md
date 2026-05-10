@@ -11,7 +11,7 @@ This repository is a Zig-based hobby operating system targeting RISC-V and typic
 - Fix root causes instead of layering one-off patches.
 
 ## Project Facts
-- Required Zig version: `0.15.2`
+- Required Zig version: `0.16.0`
 - Main kernel sources live under `src/`
 - Build orchestration lives in `build.zig`
 - Linker script: `kernel.ld`

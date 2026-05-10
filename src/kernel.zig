@@ -6,24 +6,24 @@ const std = @import("std");
 const builtin = @import("builtin");
 const console = @import("./console.zig");
 
-const ALIGN = 1 << 0;
-const MEMINFO = 1 << 1;
-const MAGIC = 0x1BADB002;
-const FLAGS = ALIGN | MEMINFO;
+const ALIGN: u32 = 1 << 0;
+const MEMINFO: u32 = 1 << 1;
+const MAGIC: u32 = 0x1BADB002;
+const FLAGS: u32 = ALIGN | MEMINFO;
 
 extern fn halt_success() noreturn;
 extern fn halt_failure() noreturn;
 
-const MultibootHeader = packed struct {
-    magic: i32 = MAGIC,
-    flags: i32,
-    checksum: i32,
+const MultibootHeader = packed struct(u128) {
+    magic: u32 = MAGIC,
+    flags: u32,
+    checksum: u32,
     padding: u32 = 0,
 };
 
 export var multiboot: MultibootHeader align(4) linksection(".multiboot") = .{
     .flags = FLAGS,
-    .checksum = -(MAGIC + FLAGS),
+    .checksum = 0 -% (MAGIC + FLAGS),
 };
 
 /// Entry point for the freestanding kernel.
@@ -71,8 +71,7 @@ fn exit(comptime success: bool) noreturn {
         :
         : [halt_eid] "i" (0x0A484c54),
           [exit_code] "i" (@intFromBool(!success)),
-        : .{ .x16 = true, .x17 = true }
-    );
+        : .{ .x16 = true, .x17 = true });
 
     while (true) {}
 }
@@ -86,8 +85,8 @@ pub const std_options = std.Options{
 
     // .log_level = .err,
     .log_scope_levels = &.{
-        .{.scope = .PLIC, .level = .info}, // Don't need debug here anymore
-        .{.scope = .PAGE, .level = .info},
+        .{ .scope = .PLIC, .level = .info }, // Don't need debug here anymore
+        .{ .scope = .PAGE, .level = .info },
         // .{.scope = .WAIT, .level = .info},
     },
 };

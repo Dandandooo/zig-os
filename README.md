@@ -43,9 +43,9 @@ When completed, this project shall be called the _brilliantly operational operat
  
 # Usage 🗣️
 
-This project requires zig version `0.15.2`. I have not tested it with any newer, and previous versions will not work.
+This project requires zig version `0.16.0`. Previous versions will not work.
 
-Commands to get running (assuming you have zig 0.15.2 and just):
+Commands to get running (assuming you have zig 0.16.0 and just):
 ```
 git clone https://github.com/Dandandooo/zig-os
 cd zig-os

@@ -4,12 +4,6 @@ const assert = @import("debug.zig").assert;
 
 // Generic Doubly-Linked-List, node type T
 pub fn DLL(comptime Node: type) type {
-    comptime {
-        assert(@hasField(Node, "next"), "type needs to have pred");
-        assert(@hasField(Node, "prev"), "type needs to have next");
-        assert(@FieldType(Node, "next") == ?*Node, "improper pointer type");
-        assert(@FieldType(Node, "prev") == ?*Node, "improper pointer type");
-    }
     return struct {
         head: ?*Node = null,
         tail: ?*Node = null,
@@ -125,10 +119,6 @@ pub fn DLL(comptime Node: type) type {
 }
 
 pub fn LL(comptime Node: type) type {
-    comptime {
-        assert(@hasField(Node, "next"), "node must have next pointer");
-        assert(@TypeOf(Node.next) == ?*Node, "next must be same type as current");
-    }
     return struct {
         head: ?*Node = null,
         tail: ?*Node = null,
@@ -154,7 +144,7 @@ pub fn LL(comptime Node: type) type {
             self.size += 1;
         }
 
-        pub fn find_field(self: *Self, comptime field: []const u8, value: anytype) struct {?*Node, ?*Node} {
+        pub fn find_field(self: *Self, comptime field: []const u8, value: anytype) struct { ?*Node, ?*Node } {
             comptime {
                 assert(@hasField(Node, field), "LL: search by existing field please!");
                 assert(@FieldType(Node, field) == @TypeOf(value), "LL: invalid search query!");
@@ -163,17 +153,17 @@ pub fn LL(comptime Node: type) type {
             var cur: ?*Node = self.head;
             var prev: ?*Node = null;
 
-            return while (cur) |cur_node| : ({prev = cur; cur = cur_node.next; }) {
-                if (@field(cur_node, field) == value) return .{prev, cur};
-            } else .{prev, null};
+            return while (cur) |cur_node| : ({ prev = cur; cur = cur_node.next; }) {
+                if (@field(cur_node, field) == value) return .{ prev, cur };
+            } else .{ prev, null };
         }
 
         pub fn find(self: *Self, node: *Node) ?*Node {
             var cur: ?*Node = self.head;
             var prev: ?*Node = null;
-            return while (cur) |cur_node| : ({prev = cur; cur = cur_node.next; }) {
-                if (cur_node == node) return .{prev, cur};
-            } else .{prev, null};
+            return while (cur) |cur_node| : ({ prev = cur; cur = cur_node.next; }) {
+                if (cur_node == node) return .{ prev, cur };
+            } else .{ prev, null };
         }
 
         pub fn pop(self: *Self, node: ?*Node) ?*Node {
