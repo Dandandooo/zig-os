@@ -8,10 +8,10 @@ pub fn run() util.test_results {
     return util.merge_results("VIRTIO",
         &[_]util.test_results{
             util.run_tests( "VIORNG", &.{
-                .{.name = "shannon entropy test", .func = shannon_entropy_test, .cons = true},
+                .{.name = "shannon entropy test", .func = shannon_entropy_test, .cons = false},
             }),
             util.run_tests("VIOBLK", &.{
-                .{.name = "write then read", .func = vioblk_write_read_test, .cons = true}
+                .{.name = "write then read", .func = vioblk_write_read_test, .cons = false}
             })
         },
     );
