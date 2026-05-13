@@ -11,10 +11,10 @@ const log = @import("std").log.scoped(.EXCP);
 
 var initialized: bool = false;
 pub fn init() void {
-    assert(initialized == false, "exceptions already initialized!");
+    assert(!initialized, "exceptions already initialized!");
+    defer initialized = true;
     // maybe do something
     log.info("initialized", .{});
-    initialized = true;
 }
 
 export fn handle_smode_exception(cause: u32, tfr: *const trap.frame) void {

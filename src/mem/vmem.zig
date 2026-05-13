@@ -128,7 +128,8 @@ extern const _kimg_data_end: anyopaque;
 /// Exported Function Definitions
 var initialized = false;
 pub fn init() void {
-	assert(initialized == false, "vmem already initialized!");
+	assert(!initialized, "vmem already initialized!");
+	defer initialized = true;
 
 	// Everything until ram start is direct gigapage mapping (MMIO Region)
 	log.debug("MMIO: 0x{X:0>8} -> 0x{X:0>8}", .{0, config.RAM_START_PMA});
@@ -173,7 +174,6 @@ pub fn init() void {
 	_ = reg.csrrs("sstatus", reg.SSTATUS_SUM);
 
 	log.info("initialized", .{});
-	initialized = true;
 }
 
 // ----------------

@@ -26,7 +26,8 @@ var isrtab: [config.NIRQ]?isrtab_entry = [_]?isrtab_entry{null} ** config.NIRQ;
 // Global Interrupt
 var initialized: bool = false;
 pub fn init() void {
-    assert(initialized == false, "interrupts already initialized!");
+    assert(!initialized, "interrupts already initialized!");
+    defer initialized = true;
     _ = disable();
     plic.init();
 

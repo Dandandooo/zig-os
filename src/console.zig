@@ -16,11 +16,11 @@ pub fn disable() void { enabled = false; }
 
 pub var initialized = false;
 pub fn init() void {
-	assert(initialized == false, "console already initialized!");
+	assert(!initialized, "console already initialized!");
+	initialized = true;
 
 	Uart.uart0_init();
 
-	initialized = true;
 	std.log.scoped(.CONS).info("initialized", .{});
 	// struct_log(
 	//  .debug, .CONSOLE, "testing struct",

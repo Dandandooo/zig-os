@@ -24,8 +24,8 @@ extern fn _thread_swtch(*Thread) *Thread;
 
 // Globals
 var thrtab: [config.NTHR]?*Thread = [_]?*Thread{null} ** config.NTHR;
-const main_tid = 0;
-const idle_tid = config.NTHR - 1;
+pub const main_tid = 0;
+pub const idle_tid = config.NTHR - 1;
 
 pub var ready_list: DLL(Thread) = .{};
 
@@ -119,6 +119,8 @@ var idle_thread: Thread = .{
 
 pub var initialized = false;
 pub fn init() void {
+    assert(!initialized, "Threads already initialized");
+    defer initialized = true;
     log.debug("main thread: {*}", .{&main_thread});
     log.debug("main thread anchor = {*}", .{&main_thread.anchor});
     log.debug("main stack anchor = {*}", .{&_main_stack_anchor});
@@ -146,7 +148,6 @@ pub fn init() void {
 
     log.info("entering main thread", .{});
     set_running(&main_thread);
-    initialized = true;
 }
 
 pub fn yield() void {

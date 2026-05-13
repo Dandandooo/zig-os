@@ -31,5 +31,5 @@ pub fn run() void {
         passed += results.passed;
     }
 
-    cons.icon_println(util.results, "RESULTS", "Passed {d}/{d} tests", .{ passed, total });
+    cons.icon_println(util.results, "RESULT", "Passed {d}/{d} tests", .{ passed, total });
 }
