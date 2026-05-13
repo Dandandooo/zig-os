@@ -4,6 +4,7 @@ const page = @import("./page.zig");
 const config = @import("../config.zig");
 const assert = @import("../util/debug.zig").assert;
 const math = @import("../util/math.zig");
+const trap = @import("../cntl/trap.zig");
 
 const log = std.log.scoped(.VMEM);
 
@@ -173,6 +174,16 @@ pub fn init() void {
 
 	log.info("initialized", .{});
 	initialized = true;
+}
+
+// ----------------
+// User Permissions
+// ----------------
+
+pub fn handle_umode_page_fault(_: *const trap.frame, vma: u64) Error!void {
+	if (vma < USER_REGION_START or vma >= USER_REGION_END)
+		return Error.InvalidVMA;
+	_ = try alloc_and_map_range(math.ROUND_DOWN(u64, vma, page.SIZE), page.SIZE, .{ .user = true, .read = true, .write = true});
 }
 
 // -----------------------

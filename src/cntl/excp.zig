@@ -1,6 +1,7 @@
 const std = @import("std");
 const reg = @import("../riscv/reg.zig");
 const trap = @import("trap.zig");
+const vmem = @import("../mem/vmem.zig");
 const assert = @import("../util/debug.zig").assert;
 const kernel = @import("../kernel.zig");
 
@@ -35,7 +36,19 @@ export fn handle_smode_exception(cause: u32, tfr: *const trap.frame) void {
 
 export fn handle_umode_exception(cause: u32, tfr: *const trap.frame) void {
     const scause: reg.scause = @enumFromInt(cause);
-    _ = scause;
-    _ = tfr;
     // Complete after virtual memory
+    switch (scause) {
+        .LOAD_PAGE_FAULT,
+        .STORE_PAGE_FAULT => vmem.handle_umode_page_fault(tfr, reg.csrr("stval")) catch {
+            log.err("\x1b[31;1m{s}\x1b[0m at 0x{X} for 0x{X} in U mode", .{@tagName(scause), @intFromPtr(tfr.sepc), reg.csrr("stval")}); },
+        .INSTR_PAGE_FAULT,
+        .LOAD_ADDR_MISALIGNED,
+        .STORE_ADDR_MISALIGNED,
+        .INSTR_ADDR_MISALIGNED,
+        .LOAD_ACCESS_FAULT,
+        .STORE_ACCESS_FAULT,
+        .INSTR_ACCESS_FAULT => log.err("\x1b[31;1m{s}\x1b[0m at 0x{X} for 0x{X} in S mode", .{@tagName(scause), @intFromPtr(tfr.sepc), reg.csrr("stval")}),
+        else => log.err("\x1b[31;1m{s}\x1b[0m at 0x{X} in U mode", .{@tagName(scause), @intFromPtr(tfr.sepc)})
+    }
+    // FIXME: kill the current process (when implemented)
 }
