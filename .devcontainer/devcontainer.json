@@ -23,7 +23,9 @@
 				"llvm-vs-code-extensions.lldb-dap",
 				"zhwu95.riscv",
 				"ms-vscode.hexeditor",
-				"Gruntfuggly.todo-tree"
+				"Gruntfuggly.todo-tree",
+				"openai.chatgpt",
+				"skellock.just"
 			]
 		}
 	}

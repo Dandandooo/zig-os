@@ -37,7 +37,7 @@ gdb:
         -ex "break kernel.crash" \
         -ex "target remote :1234"
 
-# Return the size, in bytes, of the regular executable 
+# Return the size, in bytes, of the regular executable
 size: build
     du -h {{ exe }}
 
@@ -86,6 +86,14 @@ clean-all: clean
 # Print the number of lines of code in this project
 cloc:
     cloc src/ build.zig kernel.ld justfile flake.nix *.md
+
+# Print the number of lines of code of tests
+tcloc:
+    cloc src/tests
+
+# Print the number of lines of code of the kernel
+kcloc:
+    cloc src/ kernel.ld --exclude-dir=tests,usr
 
 # List available qemu audio drivers
 [private]

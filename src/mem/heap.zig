@@ -1,5 +1,6 @@
 const std = @import("std");
 const page = @import("./page.zig");
+const assert = @import("../util/debug.zig").assert;
 const log = std.log.scoped(.HEAP);
 
 extern const _kimg_end: anyopaque;
@@ -15,6 +16,7 @@ pub var initial_allocator: std.mem.Allocator = undefined;
 
 pub var initialized: bool = false;
 pub fn init() void {
+    assert(!initialized, "already initialized");
 
     start = @intFromPtr(&_kimg_end);
     end = std.mem.alignForward(usize, start + init_min, page.SIZE);

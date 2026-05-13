@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub inline fn ROUND_UP(comptime T: type, numerator: T, denominator: T) T {
-    return numerator + denominator - (numerator % denominator);
+    return numerator + ((denominator - (numerator % denominator)) % denominator);
 }
 
 pub inline fn ROUND_DOWN(comptime T: type, numerator: T, denominator: T) T {

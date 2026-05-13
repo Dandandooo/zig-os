@@ -77,3 +77,11 @@ pub fn merge_results(comptime scope: ?[]const u8, res: []const test_results) tes
 pub fn expect(ok: bool) test_error!void {
     if (!ok) return test_error.Incorrect;
 }
+
+pub fn expectError(comptime expected: anyerror, result: anytype) test_error!void {
+    if (result) |_| {
+        return test_error.Incorrect;
+    } else |err| {
+        try expect(err == expected);
+    }
+}

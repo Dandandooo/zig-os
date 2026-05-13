@@ -56,7 +56,7 @@ pub fn main() void {
 
     // fs.print_fs_sizes();
 
-    // vmem.init(); // FIXME
+    vmem.init(); // FIXME
 
     rtc.log_time_zone_str(build_options.time_zone);
 
