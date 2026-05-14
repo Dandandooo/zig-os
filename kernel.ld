@@ -1,5 +1,5 @@
 OUTPUT_ARCH("riscv")
-/* ENTRY(_start) */
+ENTRY(mmode_start)
 
 
 PHDRS {
@@ -26,7 +26,7 @@ SECTIONS {
   .text : {
     . = ALIGN(_page_size);
     PROVIDE(_kimg_text_start = .);
-    *(.text.start) /* entry */
+    KEEP(*(.text.start)) /* entry */
     *(.text .text.*)
     . = ALIGN(16);
     PROVIDE(_kimg_text_end = .);

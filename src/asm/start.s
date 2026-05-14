@@ -15,6 +15,8 @@
         .section        .text.start, "xa", @progbits
         .balign         4
 
+        .global         mmode_start
+        .type           mmode_start, @function
 mmode_start:
 
         # Configure physical memory protection. Note that entries are in order
