@@ -2,7 +2,7 @@ FROM alpine:latest
 
 # Basic Utilities
 RUN apk add --no-cache \
-    curl git tzdata cloc
+    curl git tzdata cloc ripgrep
 
 # Run & Debug
 RUN apk add --no-cache \
