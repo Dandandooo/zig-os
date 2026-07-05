@@ -3,13 +3,13 @@ const DLL = @import("../util/list.zig").DLL;
 const heap = @import("../mem/heap.zig");
 const page = @import("../mem/page.zig");
 const wait = @import("./wait.zig");
-const process = @import("./process.zig");
 const config = @import("../config.zig");
 const intr = @import("../cntl/intr.zig");
 const assert = @import("../util/debug.zig").assert;
 const kernel = @import("../kernel.zig");
 
 const Thread = @This();
+const Process = @import("./process.zig");
 const log = std.log.scoped(.THREAD);
 
 // Externals
@@ -65,7 +65,7 @@ const ctx_entry_fn_idx = 8;
 
 const status = enum { uninitialized, waiting, running, ready, exited };
 
-const stack_anchor = extern struct {
+pub const stack_anchor = extern struct {
     ktp: *Thread,
     /// kgp is unused in this kernel
     kgp: *anyopaque = undefined,
@@ -93,7 +93,7 @@ prev: ?*Thread = null,
 next: ?*Thread = null,
 
 /// No process signifies kernel thread
-proc: ?*process = null,
+proc: ?*Process = null,
 
 locks: DLL(wait.Lock) = .{},
 rwlocks: DLL(wait.RWLock) = .{},
@@ -157,13 +157,6 @@ pub fn yield() void {
 
     const pie = intr.disable();
 
-    log.debug("Current thread state: <{s}> || name: <{s}>", .{@tagName(self.state), self.name});
-
-    var cur: ?*Thread = self;
-    while (cur) |cur_node| : (cur = cur_node.next) {
-        log.debug("cur name: {s}:{s}", .{cur_node.name, @tagName(cur_node.state)});
-    }
-
     if (self.state == .running) {
         self.state = .ready;
         if (self != &idle_thread)
@@ -179,23 +172,20 @@ pub fn yield() void {
     // assert((SP() & 0xF) == 0, "pre-swtch: sp not 16-byte aligned");
 
     // TODO: switch mspace
-    log.debug("Switching to <{s}:{d}>", .{ next.name, next.id });
+    log.debug("Switching from <{s}:{d}> to <{s}:{d}>", .{ self.name, self.id, next.name, next.id });
 
     // TODO: switch memory space for vmem
     // const old = _thread_swtch(next);
 
-    log.debug("About to thread_switch to <{*}>", .{next});
     _ = _thread_swtch(next);
     _ = intr.enable();
+    // Open window for interrupts to occur
     intr.restore(pie);
 
     assert((SP() & 0xF) == 0, "post-swtch: sp not 16-byte aligned");
-    // log.debug("hi: {*}", .{self.name.ptr});
 
     log.debug("Switched back to <{s}:{d}>", .{ self.name, self.id });
 
-    // if (old.state == .exited)
-    //     old.reclaim();
     if (self.state == .exited)
         page.phys_free(self.lowest);
 }

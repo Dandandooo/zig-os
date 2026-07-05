@@ -237,7 +237,7 @@ fn normalize_time_zone(name: []const u8) ?[]const u8 {
     if (name.len == 0) return null;
 
     const tz =
-        .{ "UTC", "GMT", "PST", "CST", "CDT", "EST", "EDT", "CET", "EET" };
+        .{ "UTC", "GMT", "PST", "PDT", "CST", "CDT", "EST", "EDT", "CET", "EET" };
 
     inline for (tz) |tz_name|
         if (std.ascii.eqlIgnoreCase(name, tz_name)) return tz_name;

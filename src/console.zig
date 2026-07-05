@@ -28,19 +28,27 @@ pub fn init() void {
 	// );
 }
 
+// QEMU's `-serial mon:stdio` leaves the host terminal in raw mode, so bare
+// '\n' bytes don't return the cursor to column 0. Send '\r' first so output
+// doesn't stair-step.
+fn putc(c: u8) void {
+	if (c == '\n') Uart.console_putc('\r');
+	Uart.console_putc(c);
+}
+
 fn drain(_: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
 	assert(initialized == true, "where are you printing to?");
 
     var written: usize = 0;
 
     for (data[0 .. data.len - 1]) |chunk| {
-        for (chunk) |c| Uart.console_putc(c);
+        for (chunk) |c| putc(c);
         written += chunk.len;
     }
 
     const pattern = data[data.len - 1];
     for (0..splat) |_| {
-        for (pattern) |c| Uart.console_putc(c);
+        for (pattern) |c| putc(c);
         written += pattern.len;
     }
 
@@ -69,7 +77,9 @@ pub fn icon_print(
 
 	chroma_idx = (chroma_idx + 1) % chroma.len;
 
-	print(header ++ format, head_args ++ args);
+	print(header, head_args);
+	print(format, args);
+	// print(header ++ format, head_args ++ args);
 }
 
 pub fn icon_println(
@@ -77,7 +87,10 @@ pub fn icon_println(
 	comptime scope: ?[]const u8,
 	comptime format: []const u8,
 	args: anytype
-) void { icon_print(icon, scope, format ++ "\n", args); }
+) void {
+	icon_print(icon, scope, format, args);
+	print("\n", .{});
+}
 
 pub fn log(
 	comptime level: std.log.Level,
@@ -102,7 +115,6 @@ pub fn struct_log(
 ) void {
 	log(level, scope, message, .{});
 	inline for (fields, values) |field, value| {
-		// writer.print("               \x1b[35m>>\x1b[0m " ++ field ++ "\n", .{value}) catch @panic("struct print'nt");
-		writer.print("  \x1b[35m=>\x1b[0m " ++ field ++ "\n", .{value}) catch @panic("struct print'nt");
+		print("  \x1b[35m=>\x1b[0m " ++ field ++ "\n", .{value});
 	}
 }

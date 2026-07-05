@@ -25,7 +25,8 @@
 				"ms-vscode.hexeditor",
 				"Gruntfuggly.todo-tree",
 				"openai.chatgpt",
-				"skellock.just"
+				"skellock.just",
+				"bokuweb.vscode-ripgrep"
 			]
 		}
 	}

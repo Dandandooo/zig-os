@@ -180,7 +180,7 @@ pub fn init() void {
 // User Permissions
 // ----------------
 
-pub fn handle_umode_page_fault(_: *const trap.frame, vma: u64) Error!void {
+pub fn handle_umode_page_fault(_: *const trap.Frame, vma: u64) Error!void {
 	if (vma < USER_REGION_START or vma >= USER_REGION_END)
 		return Error.InvalidVMA;
 	_ = try alloc_and_map_range(math.ROUND_DOWN(u64, vma, page.SIZE), page.SIZE, .{ .user = true, .read = true, .write = true});

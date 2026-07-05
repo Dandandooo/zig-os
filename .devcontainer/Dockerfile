@@ -11,4 +11,4 @@ RUN apk add --no-cache \
 # Zig 0.16.0 is only available in edge under the community branch
 RUN echo "@edge https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
 RUN apk add --no-cache \
-    zig@edge=0.16.0-r0
+    'zig@edge=~0.16'

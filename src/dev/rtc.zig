@@ -61,11 +61,9 @@ pub fn log_time() void {
 
 // NOTE: Does not account for daylight savings time
 pub const TimeZone = enum {
-	PST,
-	CST,
-	CDT,
-	EST,
-	EDT,
+	PST, PDT,
+	CST, CDT,
+	EST, EDT,
 	UTC,
 	GMT,
 	CET,
@@ -74,6 +72,7 @@ pub const TimeZone = enum {
 	fn offset(self: TimeZone) i8 {
 		return switch (self) {
 			.PST => -8,
+			.PDT => -7,
 			.CST => -6,
 			.CDT,
 			.EST => -5,

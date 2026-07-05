@@ -18,6 +18,7 @@ pub fn DLL(comptime Node: type) type {
                 self.tail = node;
             } else {
                 node.next = self.head;
+                self.head.?.prev = node;
             }
             self.head = node;
             self.size += 1;
@@ -29,6 +30,7 @@ pub fn DLL(comptime Node: type) type {
                 assert(self.head == null, "list with head but no tail");
                 self.head = node;
             } else {
+                node.prev = self.tail;
                 self.tail.?.next = node;
             }
             self.tail = node;
@@ -50,6 +52,7 @@ pub fn DLL(comptime Node: type) type {
             node.next = prev.next;
             prev.next = node;
             node.prev = prev;
+            self.size += 1;
         }
 
         pub fn pop(self: *Self, node: ?*Node) ?*Node {
@@ -130,7 +133,9 @@ pub fn LL(comptime Node: type) type {
             assert(node.next == null);
             if (self.head) |head| {
                 node.next = head;
-            } else { self.tail = node; }
+            } else {
+                self.tail = node;
+            }
             self.head = node;
             self.size += 1;
         }
@@ -139,7 +144,9 @@ pub fn LL(comptime Node: type) type {
             assert(node.next == null);
             if (self.tail) |tail| {
                 tail.next = node;
-            } else { self.head = node; }
+            } else {
+                self.head = node;
+            }
             self.tail = node;
             self.size += 1;
         }
@@ -153,7 +160,10 @@ pub fn LL(comptime Node: type) type {
             var cur: ?*Node = self.head;
             var prev: ?*Node = null;
 
-            return while (cur) |cur_node| : ({ prev = cur; cur = cur_node.next; }) {
+            return while (cur) |cur_node| : ({
+                prev = cur;
+                cur = cur_node.next;
+            }) {
                 if (@field(cur_node, field) == value) return .{ prev, cur };
             } else .{ prev, null };
         }
@@ -161,7 +171,10 @@ pub fn LL(comptime Node: type) type {
         pub fn find(self: *Self, node: *Node) ?*Node {
             var cur: ?*Node = self.head;
             var prev: ?*Node = null;
-            return while (cur) |cur_node| : ({ prev = cur; cur = cur_node.next; }) {
+            return while (cur) |cur_node| : ({
+                prev = cur;
+                cur = cur_node.next;
+            }) {
                 if (cur_node == node) return .{ prev, cur };
             } else .{ prev, null };
         }
@@ -172,7 +185,9 @@ pub fn LL(comptime Node: type) type {
             assert(cur != null, "node not in LL");
             if (prev) |prev_node| {
                 prev_node.next = item.next;
-            } else { self.head = item.next; }
+            } else {
+                self.head = item.next;
+            }
 
             if (item == self.tail.?) self.tail = prev;
 

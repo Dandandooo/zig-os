@@ -5,14 +5,14 @@ const std = @import("std");
 const config = @import("config.zig");
 const build_options = @import("build_options");
 
-const io = @import("api/io.zig");
+const IO = @import("api/io.zig");
 
 const intr = @import("cntl/intr.zig");
 const excp = @import("cntl/excp.zig");
 const cons = @import("console.zig");
 
 const Thread = @import("conc/thread.zig");
-const Process = @import("conc/process.zig");
+// const Process = @import("conc/process.zig");
 
 const heap = @import("mem/heap.zig");
 const page = @import("mem/page.zig");
@@ -22,26 +22,29 @@ const vmem = @import("mem/vmem.zig");
 const dev = @import("dev/device.zig");
 const rtc = @import("dev/rtc.zig");
 const virtio = @import("dev/virtio/virtio.zig");
-// const fs = @import("file/fs.zig");
+const fs = @import("file/fs.zig");
 
 const log = std.log.scoped(.MAIN);
 
-
-pub fn main() void {
+const modules = .{
     // Control
-    cons.init();
-    intr.init();
-    excp.init();
+    cons, intr, excp,
 
     // Memory
-    heap.init();
-    vmem.init();
+    heap, vmem,
+
+    // Devices
+    dev,
 
     // Concurrency
-    Thread.init();
+    Thread, // Process,
+};
 
-    // Device Initialization
-    dev.init();
+
+pub fn main() void {
+
+    inline for (modules) |module|
+        module.init();
 
     rtc.attach(@ptrFromInt(config.RTC_MMIO_BASE)) catch @panic("no time");
 
@@ -50,9 +53,18 @@ pub fn main() void {
             config.VIRTIO_MMIO_BASE(i),
             config.VIRTQ_INTR_SRCNO(i),
             &heap.allocator
-        ) catch { log.err("Failed to attach VIRTIO {d}", .{i}); };
+        ) catch |err| { log.err("Failed to attach VIRTIO {d}: {s}", .{i, @errorName(err)}); };
 
-    // fs.print_fs_sizes();
+    fs.print_fs_sizes();
+
+    // Virtio RNG Device Testing
+    const viorng: ?*IO = dev.open("rng") catch |err| e: {log.err("Failed to open VIORNG: {s}", .{@errorName(err)}); break :e null; };
+    var lucky_numbers = [_]u8{0} ** 4;
+    if (viorng) |rng| {
+        defer rng.close();
+        rng.fill(&lucky_numbers) catch {};
+    }
+    std.log.scoped(.VIORNG).info("Your lucky numbers: {any}", .{lucky_numbers});
 
     rtc.log_time_zone_str(build_options.time_zone);
 

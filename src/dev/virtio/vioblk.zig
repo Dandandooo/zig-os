@@ -86,11 +86,7 @@ pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *const st
         .instno = try dev.register("vioblk", open, @ptrCast(self)),
         .vq = .{
             .desc = .{
-                .{
-                    .flags = .{ .indirect= true },
-                    .addr = @intFromPtr(&self.vq.desc[DESC_HEAD]),
-                    .len = @sizeOf(virtio.virtq_desc) * DESC_STAT
-                },
+                .{ .flags = .{ .indirect = true }, .addr = @intFromPtr(&self.vq.desc[DESC_HEAD]), .len = @sizeOf(virtio.virtq_desc) * DESC_STAT },
                 .{
                     .flags = .{ .next = true },
                     .addr = @intFromPtr(&self.vq.head),
@@ -107,8 +103,8 @@ pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *const st
                     .flags = .{ .write = true },
                     .addr = @intFromPtr(&self.vq.stat),
                     .len = @sizeOf(Status),
-                }
-            }
+                },
+            },
         },
 
         .blksz = if (enabled_features.has(virtio.F.BLK_BLK_SIZE)) regs.config.blk.blk_size else BLKSZ,
@@ -116,15 +112,13 @@ pub fn attach(regs: *volatile virtio.mmio_regs, irqno: u32, allocator: *const st
 
     assert((self.blksz & (self.blksz - 1)) == 0, "Block Size must be a power of 2");
 
-    cons.struct_log(.debug, .VIOBLK, "vioblk initialized",
-    .{"Device ID: {s}", "IRQNO: {d}", "INSTNO: {d}", "BLKSZ: {d}"},
-    .{@tagName(regs.device_id), self.irqno, self.instno, self.blksz});
+    cons.struct_log(.debug, .VIOBLK, "vioblk initialized", .{ "Device ID: {s}", "IRQNO: {d}", "INSTNO: {d}", "BLKSZ: {d}" }, .{ @tagName(regs.device_id), self.irqno, self.instno, self.blksz });
 
     regs.attach_virtq(0, 1, &self.vq.desc[0], @intFromPtr(&self.vq.used), @intFromPtr(&self.vq.avail));
 }
 
 fn open(aux: *anyopaque) IO.Error!*IO {
-    const self: *VIOBLK = @alignCast(@ptrCast(aux));
+    const self: *VIOBLK = @ptrCast(@alignCast(aux));
 
     if (self.io.refcnt != 0)
         return IO.Error.Busy;
@@ -146,13 +140,18 @@ fn interact(io: *IO, request: types, data_addr: u64, len: u32, pos: u64) IO.Erro
     const self: *VIOBLK = @fieldParentPtr("io", io);
     const stat_ptr: *volatile Status = @ptrCast(&self.vq.stat);
 
+    if (pos % BLKSZ != 0) {
+        log.err("block offset must be sector aligned", .{});
+        return IO.Error.Invalid;
+    }
+
     if (len % self.blksz != 0) {
         log.err("write length must be multiple of block size", .{});
         return IO.Error.Invalid;
     }
 
     self.vq.head.req_type = request;
-    self.vq.head.sector = pos;
+    self.vq.head.sector = pos / BLKSZ;
     self.vq.desc[DESC_DATA].addr = data_addr;
     self.vq.desc[DESC_DATA].len = len;
 
@@ -183,7 +182,7 @@ fn interact(io: *IO, request: types, data_addr: u64, len: u32, pos: u64) IO.Erro
         .OK => len,
         .IOError => IO.Error.Error,
         .Unsupported => IO.Error.Unsupported,
-        else => unreachable
+        else => unreachable,
     };
 }
 
@@ -200,14 +199,14 @@ pub fn cntl(io: *IO, cmd: i32, _: ?*anyopaque) IO.Error!isize {
 
     return switch (cmd) {
         IO.IOCTL_GETBLKSZ => @intCast(self.blksz),
-        IO.IOCTL_GETEND => @intCast(self.regs.config.blk.capacity * self.blksz),
-        else => IO.Error.Unsupported
+        IO.IOCTL_GETEND => @intCast(self.regs.config.blk.capacity * BLKSZ),
+        else => IO.Error.Unsupported,
     };
 }
 
 fn isr(aux: *anyopaque) void {
     log.debug("ISR FIRED", .{});
-    const self: *VIOBLK = @alignCast(@ptrCast(aux));
+    const self: *VIOBLK = @ptrCast(@alignCast(aux));
 
     // self.vq.last_used_idx = self.vq.used.idx;
     self.regs.interrupt_ack = 1;

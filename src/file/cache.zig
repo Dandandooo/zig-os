@@ -1,102 +1,131 @@
 const std = @import("std");
-const heap = @import("../mem/heap.zig");
 const IO = @import("../api/io.zig");
 const DLL = @import("../util/list.zig").DLL;
 const wait = @import("../conc/wait.zig");
+const assert = @import("../util/debug.zig").assert;
 
 const log = std.log.scoped(.FSCACHE);
 
-// Constants
 pub const BLKSZ = 512;
+pub const CAPACITY = 64;
 
-pub const PURGE_UNTIL = 64;
-pub const CAPACITY = 128;
-
-// Class Attributes
 const Cache = @This();
 
 bkgio: *IO,
-data: DLL(cache_elem) = .{},
-parole: wait.Condition = .{ .name = "parole" },
 allocator: std.mem.Allocator,
+lru: DLL(Entry) = .{},
+parole: wait.Condition = .{ .name = "parole" },
 
-const cache_elem = struct {
+const Entry = struct {
     pos: u64,
+    next: ?*Entry = null,
+    prev: ?*Entry = null,
+    lock: wait.Lock = .new("cache lock"),
     data: [BLKSZ]u8 = undefined,
-    lock: wait.RWLock = .new("(b)lock"),
-    dirty: bool = false,
-    next: ?*cache_elem = null,
-    prev: ?*cache_elem = null,
 };
 
-// Functions
+pub const Release = enum {
+    clean,
+    dirty,
+};
 
-const block_error = std.mem.Allocator.Error || IO.Error;
+const Error = IO.Error;
 
-/// Get for writing. WILL mark block as dirty
-pub fn get(self: *Cache, pos: u8) block_error![]u8 {
-    return self.get_block(pos, false);
+pub fn init(bkgio: *IO, allocator: std.mem.Allocator) Cache {
+    assert(bkgio.intf.readat != null, "cache backing IO must support readat");
+    assert(bkgio.intf.writeat != null, "cache backing IO must support writeat");
+
+    return .{
+        .bkgio = bkgio,
+        .allocator = allocator,
+    };
 }
 
-/// Get for reading
-pub fn get_const(self: *Cache, pos: u8) block_error![]const u8 {
-    return self.get_block(pos, true);
+pub fn deinit(self: *Cache) void {
+    while (self.lru.pop(self.lru.head)) |entry|
+        self.allocator.destroy(entry);
 }
 
-fn get_block(self: *Cache, pos: u8, ro: bool) block_error![]u8 {
-    // Potential optimizations:
-    // 1. only rearrange if block is behind the purge threshold
-    const elem = if (self.data.find_field("pos", pos)) |node|
-        self.data.pop(node).?
-    else try self.fetch(pos);
-
-    elem.lock.acquire(ro);
-    if (!ro) elem.dirty = true;
+pub fn get(self: *Cache, pos: u64) Error!*[BLKSZ]u8 {
+    const entry = try self.get_block(pos);
+    return &entry.data;
 }
 
-fn fetch(self: *Cache, pos: u8) block_error!*cache_elem {
-    const elem = try self.allocator.create(cache_elem);
-    errdefer self.allocator.destroy(elem);
-    elem.* = .{ .pos = pos };
-    _ = try self.bkgio.readat(elem.data, pos);
-    self.data.prepend(elem);
+pub fn get_const(self: *Cache, pos: u64) Error!*const [BLKSZ]u8 {
+    const entry = try self.get_block(pos);
+    return &entry.data;
 }
 
+pub fn release(self: *Cache, block: []const u8, state: Release) void {
+    const entry: *Entry = @alignCast(@fieldParentPtr("data", @as(*[BLKSZ]u8, @ptrCast(@constCast(block)))));
 
-/// Write-back cache, so no writing during this step (except for full)
-pub fn release(self: *Cache, buf: []u8) void {
-    const elem: *cache_elem = @fieldParentPtr("data", buf);
-    elem.lock.release();
-    if (self.data.size >= CAPACITY)
-        self.clear_tail(CAPACITY - PURGE_UNTIL);
-}
-
-/// Write the `num` least-recently-used elements to disk (if dirty) and remove them.
-/// Failed writes will keep elements in cache to try again later
-fn clear_tail(self: *Cache, num: usize) IO.Error!void {
-    var errored = false;
-    var i = num;
-    var cur = self.data.tail;
-    while (cur) | elem | : ({cur = elem.next; i -= 1;}) {
-        if (i <= 0) break;
-
-        if (elem.dirty) {
-            self.bkgio.writeat(elem.data, elem.pos) catch |err| {
-                log.err("Failed to save block {d} ({s}), keeping in cache", .{elem.pos, @errorName(err)});
-                errored = true;
-                continue;
+    switch (state) {
+        .clean => {},
+        .dirty => {
+            const written = self.bkgio.writeat(entry.data[0..], entry.pos) catch |err| e: {
+                log.err("failed to write cache block 0x{X}: {s}", .{ entry.pos, @errorName(err) });
+                break :e 0;
             };
-        }
-
-        self.allocator.destroy(elem);
-        _ = self.data.pop(cur);
+            if (written != BLKSZ)
+                log.err("short cache write at 0x{X}: {d}/{d}", .{ entry.pos, written, BLKSZ });
+        },
     }
 
-    if (errored)
-        return IO.Error.Error;
+    entry.lock.release();
+
+    if (self.lru.size > CAPACITY)
+        self.parole.broadcast();
 }
 
-/// Write-back cache.
 pub fn flush(self: *Cache) IO.Error!void {
-    return self.clear_tail(self.data.size);
+    _ = self;
+}
+
+fn get_block(self: *Cache, pos: u64) Error!*Entry {
+    assert(pos % BLKSZ == 0, "cache blocks must be aligned");
+
+    const entry = if (self.lru.find_field("pos", pos)) |node|
+        node
+    else
+        try self.fetch(pos);
+    entry.lock.acquire();
+
+    if (self.lru.find(entry) != null)
+        _ = self.lru.pop(entry);
+    self.lru.prepend(entry);
+
+    self.evict_until_fit();
+
+    return entry;
+}
+
+fn fetch(self: *Cache, pos: u64) Error!*Entry {
+    const entry = self.allocator.create(Entry) catch return IO.Error.Error;
+    errdefer self.allocator.destroy(entry);
+
+    entry.* = .{ .pos = pos };
+
+    const read = try self.bkgio.readat(entry.data[0..], pos);
+    if (read != BLKSZ) {
+        log.err("short cache read at 0x{X}: {d}/{d}", .{ pos, read, BLKSZ });
+        return IO.Error.Error;
+    }
+
+    return entry;
+}
+
+fn evict_until_fit(self: *Cache) void {
+    while (self.lru.size > CAPACITY) {
+        var to_free = self.lru.tail;
+        while (to_free) |entry| {
+            const prev = entry.prev;
+            if (entry.lock.owner == null) {
+                self.allocator.destroy(self.lru.pop(entry).?);
+                break;
+            }
+            to_free = prev;
+        } else {
+            self.parole.wait();
+        }
+    }
 }

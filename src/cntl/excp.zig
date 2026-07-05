@@ -17,7 +17,7 @@ pub fn init() void {
     log.info("initialized", .{});
 }
 
-export fn handle_smode_exception(cause: u32, tfr: *const trap.frame) void {
+export fn handle_smode_exception(cause: u32, tfr: *const trap.Frame) void {
     const scause: reg.scause = @enumFromInt(cause);
     switch (scause) {
         .LOAD_PAGE_FAULT,
@@ -34,7 +34,7 @@ export fn handle_smode_exception(cause: u32, tfr: *const trap.frame) void {
     kernel.crash();
 }
 
-export fn handle_umode_exception(cause: u32, tfr: *const trap.frame) void {
+export fn handle_umode_exception(cause: u32, tfr: *const trap.Frame) void {
     const scause: reg.scause = @enumFromInt(cause);
     // Complete after virtual memory
     switch (scause) {
