@@ -10,6 +10,8 @@ const assert = @import("../util/debug.zig").assert;
 const test_map = .{
     @import("api/io.zig"),
     @import("fs/rbfs.zig"),
+    @import("fs/ext2.zig"),
+    @import("fs/ktfs.zig"),
     @import("mem/page.zig"),
     @import("mem/vmem.zig"),
     @import("conc/thread.zig"),

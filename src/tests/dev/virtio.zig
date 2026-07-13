@@ -1,5 +1,6 @@
 const std = @import("std");
 const dev = @import("../../dev/device.zig");
+const IO = @import("../../api/io.zig");
 const log = std.log.scoped(.VIRTIO);
 const util = @import("../util.zig");
 const heap = @import("../../mem/heap.zig");
@@ -7,15 +8,26 @@ const heap = @import("../../mem/heap.zig");
 pub fn run() util.test_results {
     return util.merge_results("VIRTIO",
         &[_]util.test_results{
+            util.run_tests("DEVICE", &.{
+                .{.name = "unknown device", .func = device_not_found},
+            }),
             util.run_tests( "VIORNG", &.{
                 .{.name = "shannon entropy test", .func = shannon_entropy_test, .cons = false},
             }),
             util.run_tests("VIOBLK", &.{
-                .{.name = "write then read", .func = vioblk_write_read_test, .cons = false}
+                .{.name = "write then read", .func = vioblk_write_read_test, .cons = false},
+                .{.name = "cntl geometry", .func = vioblk_cntl_test, .cons = false},
+                .{.name = "double open busy", .func = vioblk_double_open_test, .cons = false},
+                .{.name = "invalid requests", .func = vioblk_invalid_request_test, .cons = false},
             })
         },
     );
 
+}
+
+fn device_not_found() anyerror!void {
+    try util.expectError(dev.Error.NotFound, dev.open("definitely-not-a-device"));
+    try util.expectError(dev.Error.NotFound, dev.open_nth("vioblk", 99));
 }
 
 fn shannon_entropy_test() anyerror!void {
@@ -105,4 +117,44 @@ fn vioblk_write_read_test() anyerror!void {
         try util.expect(verify_buf[i] == orig_buf[i]);
     }
 
+}
+
+fn vioblk_cntl_test() anyerror!void {
+    const io = try dev.open("vioblk");
+    defer io.close();
+
+    const blksz = try io.cntl(IO.IOCTL_GETBLKSZ, null);
+    try util.expect(blksz == 512);
+
+    const end = try io.cntl(IO.IOCTL_GETEND, null);
+    try util.expect(end > 0);
+    try util.expect(@rem(end, blksz) == 0);
+
+    try util.expectError(IO.Error.Unsupported, io.cntl(0x5A5A, null));
+}
+
+fn vioblk_double_open_test() anyerror!void {
+    const io = try dev.open("vioblk");
+    defer io.close();
+
+    try util.expectError(IO.Error.Busy, dev.open("vioblk"));
+}
+
+fn vioblk_invalid_request_test() anyerror!void {
+    const io = try dev.open("vioblk");
+    defer io.close();
+
+    var sector = [_]u8{0} ** 512;
+
+    // Sector-misaligned position and non-multiple length are rejected by the
+    // driver before touching the device.
+    try util.expectError(IO.Error.Invalid, io.readat(sector[0..], 3));
+    try util.expectError(IO.Error.Invalid, io.readat(sector[0..100], 0));
+
+    // Past the end of the disk the device reports an error; any error is
+    // acceptable, silently returning garbage is not.
+    const end = try io.cntl(IO.IOCTL_GETEND, null);
+    if (io.readat(sector[0..], @intCast(end))) |_|
+        return util.test_error.Incorrect
+    else |_| {}
 }

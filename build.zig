@@ -29,7 +29,14 @@ const qemu_base = .{
     "-object",
     "rng-random,filename=/dev/urandom,id=rng0",
 
-    // Block Device
+    // Block Devices. QEMU fills virtio-mmio slots in reverse command-line
+    // order, so the ext2 disk is declared first to keep the ktfs disk as
+    // the first vioblk the kernel discovers.
+    "-device",
+    "virtio-blk-device,drive=blk1",
+    "-drive",
+    "file=ext2.raw,id=blk1,if=none,format=raw,readonly=false",
+
     "-device",
     "virtio-blk-device,drive=blk0",
     "-drive",
@@ -146,6 +153,12 @@ pub fn build(b: *std.Build) void {
     });
     test_mod.addOptions("build_options", test_options);
 
+    // Manifest of the real files/ content (names, sizes, checksums) so the
+    // kernel tests can verify the ktfs image against what mkfs put in it.
+    const manifest_files = b.addWriteFiles();
+    const manifest_src = manifest_files.add("testfiles.zig", generate_test_manifest(b));
+    test_mod.addAnonymousImport("testfiles", .{ .root_source_file = manifest_src });
+
     const test_kernel = b.addExecutable(.{ .root_module = test_mod, .name = "test_kernel", .linkage = .static, .use_lld = true });
     test_kernel.setLinkerScript(b.path("kernel.ld"));
 
@@ -163,6 +176,29 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run kernel tests in QEMU");
     test_step.dependOn(&test_qemu.step);
+
+    // -----------------------------
+    // mkfs - host tool that builds ktfs.raw from files/
+    // -----------------------------
+    const mkfs_mod = b.createModule(.{
+        .root_source_file = b.path("util/fs/mkfs_ktfs.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseSafe,
+    });
+    const mkfs = b.addExecutable(.{ .root_module = mkfs_mod, .name = "mkfs_ktfs" });
+    const install_mkfs = b.addInstallArtifact(mkfs, .{});
+
+    const mkfs_ext2_mod = b.createModule(.{
+        .root_source_file = b.path("util/fs/mkfs_ext2.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseSafe,
+    });
+    const mkfs_ext2 = b.addExecutable(.{ .root_module = mkfs_ext2_mod, .name = "mkfs_ext2" });
+    const install_mkfs_ext2 = b.addInstallArtifact(mkfs_ext2, .{});
+
+    const mkfs_step = b.step("mkfs", "Build the host mkfs tools");
+    mkfs_step.dependOn(&install_mkfs.step);
+    mkfs_step.dependOn(&install_mkfs_ext2.step);
 
     // -----------------------------
     // debug - Run tests with gdb
@@ -203,6 +239,43 @@ fn addAllAssemblyFiles(b: *std.Build, exe: *std.Build.Step.Compile) void {
         // exe.addAssemblyFile(b.path(b.pathJoin(&.{ "src", asmPath })));
         exe.root_module.addCSourceFile(.{ .file = b.path(b.pathJoin(&.{ "src", asmPath })), .language = .assembly, .flags = &.{ "-g", "-fno-omit-frame-pointer" } });
     }
+}
+
+/// Zig source for a module describing the real files/ content, so kernel
+/// tests can check the mounted ktfs image against the actual project files.
+fn generate_test_manifest(b: *std.Build) []const u8 {
+    const io = b.graph.io;
+    const dirs = [_][]const u8{ "files/wav", "files/bin" };
+
+    var paths: std.ArrayList([]const u8) = .empty;
+    for (dirs) |dpath| {
+        const dir = std.Io.Dir.cwd().openDir(io, dpath, .{ .iterate = true }) catch
+            std.debug.panic("missing directory: {s}", .{dpath});
+        var it = dir.iterate();
+        while (it.next(io) catch null) |entry| {
+            if (entry.kind != .file) continue;
+            paths.append(b.allocator, b.pathJoin(&.{ dpath, entry.name })) catch @panic("OOM");
+        }
+    }
+    std.mem.sort([]const u8, paths.items, {}, struct {
+        fn lt(_: void, lhs: []const u8, rhs: []const u8) bool {
+            return std.mem.lessThan(u8, lhs, rhs);
+        }
+    }.lt);
+
+    var src: []const u8 =
+        \\pub const Entry = struct { name: []const u8, size: u32, crc32: u32 };
+        \\pub const entries = [_]Entry{
+        \\
+    ;
+    for (paths.items) |path| {
+        const data = std.Io.Dir.cwd().readFileAlloc(io, path, b.allocator, .unlimited) catch
+            std.debug.panic("cannot read {s}", .{path});
+        src = b.fmt("{s}    .{{ .name = \"{s}\", .size = {d}, .crc32 = 0x{X:0>8} }},\n", .{
+            src, std.fs.path.basename(path), data.len, std.hash.Crc32.hash(data),
+        });
+    }
+    return b.fmt("{s}}};\n", .{src});
 }
 
 fn parse_ram_size(size: []const u8) usize {

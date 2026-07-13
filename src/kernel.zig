@@ -40,6 +40,10 @@ pub const panic = std.debug.FullPanic(panicFn);
 pub fn panicFn(message: []const u8, first_trace: ?usize) noreturn {
     @branchHint(.cold);
 
+    // The console may be disabled (e.g. while a test is running); a panic
+    // must never be silent.
+    @import("./console.zig").enable();
+
     std.log.scoped(.PANIC).err("{s}", .{message});
     if (first_trace) |trace_addr| {
         std.log.scoped(.CAUSE).err("Trace Address: 0x{X}", .{trace_addr});

@@ -15,19 +15,19 @@ build:
     zig build
 
 # Run the regular executable
-run: _check_ktfs
+run: _check_ktfs _check_ext2
     zig build run
 
 [private]
-runn: _check_ktfs
+runn: _check_ktfs _check_ext2
     zig build run -Dgay
 
-# Run the test executable
-test: _check_ktfs
+# Run the test executable (tests mutate the disk images, so rebuild them)
+test: mkfs_ktfs mkfs_ext2
     zig build test
 
 # Run the test executable in gdb
-debug: _check_ktfs
+debug: mkfs_ktfs mkfs_ext2
     zig build debug
 
 # Attach gdb to the executable
@@ -59,10 +59,21 @@ taddr address: build
 
 # Build a ktfs file that contains the files/
 mkfs_ktfs:
-    ./util/fs/mkfs_ktfs ktfs.raw 64M 128 files/wav/* files/bin/*
+    zig build mkfs
+    ./zig-out/bin/mkfs_ktfs ktfs.raw 64M 128 files/wav/* files/bin/*
 
+# Build an ext2 image that contains the files/
+mkfs_ext2:
+    zig build mkfs
+    ./zig-out/bin/mkfs_ext2 ext2.raw 16M files/wav/* files/bin/*
+
+# Rebuild the image if it is missing or files/ changed since it was made
 _check_ktfs:
-    [ -f "ktfs.raw" ] || just mkfs_ktfs > /dev/null
+    [ -f "ktfs.raw" ] && [ -z "$(find files -type f -newer ktfs.raw)" ] || just mkfs_ktfs
+
+# Rebuild the ext2 image if it is missing or files/ changed since it was made
+_check_ext2:
+    [ -f "ext2.raw" ] && [ -z "$(find files -type f -newer ext2.raw)" ] || just mkfs_ext2
 
 #####################
 ## File Management ##
@@ -76,7 +87,7 @@ clean:
 # Remove every temporary file
 [no-quiet]
 clean-all: clean
-    rm -rf .zig-cache ktfs.raw
+    rm -rf .zig-cache ktfs.raw ext2.raw
 
 
 ###################

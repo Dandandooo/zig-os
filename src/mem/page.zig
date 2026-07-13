@@ -142,12 +142,13 @@ pub fn phys_free(pages: []align(SIZE) u8) void {
             new_node = @alignCast(@ptrCast(pages.ptr));
             new_node.* = chunk{ .cnt = cnt, .prev = prev, .next = prev.next };
             prev.next = new_node;
-            // free_chunk_list.insert(new_node, prev);
+            free_chunk_list.size += 1;
         }
     } else {
         new_node = @alignCast(@ptrCast(pages.ptr));
         new_node.* = chunk{ .cnt = cnt, .prev = null, .next = next_node };
         free_chunk_list.head = new_node;
+        free_chunk_list.size += 1;
     }
 
     if (next_node) |next| {
@@ -161,7 +162,7 @@ pub fn phys_free(pages: []align(SIZE) u8) void {
             } else {
                 free_chunk_list.tail = new_node;
             }
-            // _ = free_chunk_list.pop(next);
+            free_chunk_list.size -= 1;
         }
     } else free_chunk_list.tail = new_node;
 }

@@ -70,9 +70,12 @@ pub fn addref(ioptr: *IO) *IO {
 pub fn close(self: *IO) void {
     assert(self.refcnt > 0, "IO already closed!");
     self.lock.acquire();
-    defer self.lock.release();
     self.refcnt -= 1;
-    if (self.refcnt == 0)
+    const dead = self.refcnt == 0;
+    // Release before close_fn: the close callback may destroy the object
+    // this IO (and its lock) is embedded in.
+    self.lock.release();
+    if (dead)
         if (self.intf.close) |close_fn| close_fn(self);
         // else @panic("this io doesn't close"); // doesn't have to be a problem
 }

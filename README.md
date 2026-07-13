@@ -66,7 +66,8 @@ To get started, run the following commands
 - `just taddr <addr>` - Same as above but for test executable
 - `just size` - Print size of kernel executable
 - `just tsize` - Print size of kernel-test executable
-- `just ktfs` - Compile a set of files into the KTFS file system (part of UIUC ECE 391)
+- `just mkfs_ktfs` - Compile the files/ folder into a KTFS disk image (part of UIUC ECE 391)
+- `just mkfs_ext2` - Compile the files/ folder into an ext2 disk image
 - `zig build docs` - Generate documentation using Zig's documentation builder
 
 # Why? 🤷‍♂️

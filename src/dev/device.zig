@@ -47,9 +47,19 @@ pub fn register(name: []const u8, open_fn: *const fn (*anyopaque) IO.Error!*IO, 
 }
 
 pub fn open(name: []const u8) (IO.Error || Error)!*IO {
+    return open_nth(name, 0);
+}
+
+/// Open the nth device registered under a shared name (e.g. the second
+/// "vioblk" when several block devices are attached).
+pub fn open_nth(name: []const u8, nth: usize) (IO.Error || Error)!*IO {
+    var count: usize = 0;
     return for (&devtab) |*maybe| {
         if (maybe.*) |*dev|
-            if (std.mem.eql(u8, name, dev.name))
-                break dev.open_fn(dev.aux);
+            if (std.mem.eql(u8, name, dev.name)) {
+                if (count == nth)
+                    break dev.open_fn(dev.aux);
+                count += 1;
+            };
     } else Error.NotFound;
 }

@@ -1,3 +1,4 @@
+const std = @import("std");
 const util = @import("../util.zig");
 const Io = @import("../../api/io.zig");
 const NullIO = Io.NullIO;
@@ -9,6 +10,8 @@ pub fn run() util.test_results {
         .{ .name = "Unsupported Defaults", .func = unsupported_defaults },
         .{ .name = "Fill Reads Multiple Chunks", .func = fill_reads_multiple_chunks },
         .{ .name = "Addref Close Once", .func = addref_close_once },
+        .{ .name = "Close Without Close Fn", .func = close_without_close_fn },
+        .{ .name = "Pipe Roundtrip (TODO)", .func = pipe_roundtrip },
     });
 }
 
@@ -81,6 +84,39 @@ fn fill_reads_multiple_chunks() anyerror!void {
     try util.expect(self.read_calls == 3);
     for (buf, 0..) |b, i|
         try util.expect(b == i);
+}
+
+fn close_without_close_fn() anyerror!void {
+    var self: MinimalIO = .{};
+
+    _ = Io.addref(&self.io);
+    self.io.close();
+    try util.expect(self.io.refcnt == 0);
+}
+
+/// create_pipe is still a stub. When implemented, bytes written to the write
+/// end must come back out of the read end. Until then the pointers stay at
+/// their sentinels and the test fails without dereferencing anything bogus.
+fn pipe_roundtrip() anyerror!void {
+    var wsent: NullIO = .{};
+    var rsent: NullIO = .{};
+    var wio: *Io = &wsent.io;
+    var rio: *Io = &rsent.io;
+
+    Io.create_pipe(&wio, &rio);
+
+    if (wio == &wsent.io or rio == &rsent.io)
+        return error.NotImplemented;
+
+    defer wio.close();
+    defer rio.close();
+
+    const msg = "pipe dream";
+    try util.expect(try wio.write(msg) == msg.len);
+
+    var got = [_]u8{0} ** msg.len;
+    try rio.fill(&got);
+    try util.expect(std.mem.eql(u8, got[0..], msg));
 }
 
 fn addref_close_once() anyerror!void {

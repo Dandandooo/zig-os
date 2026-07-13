@@ -98,7 +98,7 @@ smode_start:
         .section        .data.stack, "wa", @progbits
         .balign		4096
 
-        .equ		MAIN_STACK_SIZE, 4096
+        .equ		MAIN_STACK_SIZE, 16384
 
         .global		_main_stack_lowest
         .type		_main_stack_lowest, @object

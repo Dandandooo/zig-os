@@ -17,7 +17,7 @@ extern const _idle_stack_anchor: stack_anchor;
 extern const _idle_stack_lowest: [page.SIZE]u8 align(page.SIZE);
 
 extern const _main_stack_anchor: stack_anchor;
-extern const _main_stack_lowest: [page.SIZE]u8 align(page.SIZE);
+extern const _main_stack_lowest: [4 * page.SIZE]u8 align(page.SIZE);
 
 extern fn _thread_startup() void;
 extern fn _thread_swtch(*Thread) *Thread;
